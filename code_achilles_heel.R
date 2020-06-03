@@ -1,8 +1,8 @@
-## ----setup, include=FALSE--------------------------------------------------------------
+## ----setup, include=FALSE--------------------------------------------------------
 knitr::opts_chunk$set(echo = TRUE)
 
 
-## ----load_packages, results="hide", message=FALSE, warning=FALSE-----------------------
+## ----load_packages, results="hide", message=FALSE, warning=FALSE-----------------
 
 # LOAD PACKAGES ---------------------------------------------------------------
 
@@ -47,9 +47,9 @@ theme_AP <- function() {
 }
 
 
-## ----functions_data, cache=TRUE--------------------------------------------------------
+## ----functions_data, cache=TRUE--------------------------------------------------
 
-# CREATE FUNCTIONS ------------------------------------------------------------
+# CREATE FUNCTIONS -----------------------------------------------------------------
 
 # Function to obtain UN code, Continent and Country names
 country_code <- function(dt) {
@@ -132,9 +132,9 @@ open_nc_files <- function(file, dname) {
 }
 
 
-## ----water_with_dataset, cache=TRUE, warning=FALSE-------------------------------------
+## ----water_with_dataset, cache=TRUE, warning=FALSE-------------------------------
 
-# READ IN DATASETS ON IRRIGATION WATER WITHDRAWAL ------------------------------
+# READ IN DATASETS ON IRRIGATION WATER WITHDRAWAL ----------------------------------
 
 # Define vector to reorder columns
 cols_order <- c("Continent", "Country", "Code", "Water.Dataset", "Water.Withdrawn")
@@ -198,7 +198,7 @@ GHM.dt <- GHM.dt[, Water.Withdrawn:= ifelse(Country == "Gabon" &
 
 ## ----final_water_dataset, cache=TRUE, dependson=c("water_with_dataset" ,"arrange_total_countries")----
 
-# CREATE THE FINAL IRRIGATION WATER WITHDRAWAL DATASET ------------------------
+# CREATE THE FINAL IRRIGATION WATER WITHDRAWAL DATASET -----------------------------
 
 water.dt <- rbind(liu.dt, table4.dt, GHM.dt)
 
@@ -209,12 +209,13 @@ duplicated.countries <- water.dt[, .N, .(Country)][N > 8][, Country]
 water.dt[Country %in% duplicated.countries]
 
 # Compute mean
-GHM.dt <- water.dt[, .(Water.Withdrawn = mean(Water.Withdrawn)),
-                   .(Water.Dataset, Country, Code, Continent)]
+water.dt <- water.dt[, .(Water.Withdrawn = mean(Water.Withdrawn)),
+                     .(Water.Dataset, Country, Code, Continent)]
 
-## ----area_dataset, cache=TRUE----------------------------------------------------------
 
-# READ IN IRRIGATED AREA DATASET -----------------------------------------------
+## ----area_dataset, cache=TRUE----------------------------------------------------
+
+# READ IN IRRIGATED AREA DATASET ---------------------------------------------------
 
 meier.dt <- fread("meier.csv") %>%
   setnames(., "Codes", "Code") %>%
@@ -225,7 +226,7 @@ meier.dt <- fread("meier.csv") %>%
 
 ## ----merge_with_area, cache=TRUE, dependson=c("area_dataset", "water_with_dataset", "final_water_dataset")----
 
-# MERGE DATASETS --------------------------------------------------------------
+# MERGE DATASETS -------------------------------------------------------------------
 
 full.dt <- water.dt[, merge(.SD, meier.dt, by = c("Country", "Code", "Continent"), 
                             all.y = TRUE), Water.Dataset] %>%
@@ -236,9 +237,9 @@ full.dt[is.na(Water.Withdrawn), ] %>%
   .[, unique(Country)]
 
 
-## ----plot_merged, cache=TRUE, dependson="merge_with_area", dev="tikz", fig.height=3.3, fig.width=5, fig.cap="Scatterplots of irrigated areas reported by FAO-GMIA against irrigation water withdrawals."----
+## ----plot_merged, cache=TRUE, dependson="merge_with_area", dev="tikz", fig.height=3.3, fig.width=5, fig.cap="Scatterplots of irrigated areas reported by FAO-GMIA against irrigation water withdrawals. Each dot is a country."----
 
-# PLOT ------------------------------------------------------------------------
+# PLOT -----------------------------------------------------------------------------
 
 full.dt %>%
   na.omit() %>%
@@ -257,9 +258,9 @@ full.dt %>%
         strip.text = element_text(size = 6.7))
 
 
-## ----log10, cache=TRUE, dependson="merge_with_area"------------------------------------
+## ----log10, cache=TRUE, dependson="merge_with_area"------------------------------
 
-# TRANSFORM DATASET -----------------------------------------------------------
+# TRANSFORM DATASET ----------------------------------------------------------------
 
 cols <- c("Water.Withdrawn", "Irrigated.Area")
 col_names <- c("Continent", "Water.Dataset", "Area.Dataset", "Regression", 
@@ -268,16 +269,17 @@ cols_group <- c("Continent", "Water.Dataset")
 full.dt <- full.dt[, (cols):= lapply(.SD, log10), .SDcols = (cols)]
 
 
-## ----export_dataset_log10, cache=TRUE, dependson="log10"-------------------------------
+## ----export_dataset_log10, cache=TRUE, dependson="log10"-------------------------
 
 # EXPORT FULL DATASET WITH MISSING VALUES --------------------------------------------
 
 fwrite(full.dt, "full.dt.csv")
+fwrite(water.dt, "water.dt.csv")
 
 
 ## ----plot_missing2, cache=TRUE, dependson="log10", fig.height=3, fig.width=4.5, dev="tikz", fig.cap="Proportion of missing values in irrigation water withdrawal per dataset."----
 
-# PLOT PERCENTAGE OF MISSING 2 -------------------------------------------------
+# PLOT PERCENTAGE OF MISSING 2 -----------------------------------------------------
 
 full.dt[, sum(is.na(.SD) == TRUE) / .N, 
         .(Continent, Water.Dataset), 
@@ -293,9 +295,9 @@ full.dt[, sum(is.na(.SD) == TRUE) / .N,
   theme(legend.position = "top")
 
 
-## ----missing, cache=TRUE, dependson="log10", echo=FALSE, message=FALSE, warning=FALSE----
+## ----missing, cache=TRUE, dependson="log10", message=FALSE, warning=FALSE--------
 
-# IMPUTATION OF MISSING VALUES --------------------------------------------------
+# IMPUTATION OF MISSING VALUES -----------------------------------------------------
 
 # Substitute Inf values for NA
 for (j in 1:ncol(full.dt)) set(full.dt, which(is.infinite(full.dt[[j]])), j, NA)
@@ -337,9 +339,9 @@ full.imput <- imput[, lapply(.SD, unlist),
                     .(Continent,Water.Dataset, Imputation.Method)]
 
 
-## ----conduct_lm, cache=TRUE, dependson=c("missing_values", "missing")------------------
+## ----conduct_lm, cache=TRUE, dependson=c("missing_values", "missing")------------
 
-# COMPUTE LINEAR REGRESSIONS -------------------------------------------------------
+# COMPUTE LINEAR REGRESSIONS --------------------------------------------------------
 
 # Compute regressions in each combination
 regressions <- full.imput %>%
@@ -366,9 +368,9 @@ residuals <- regressions %>%
   data.table()
 
 
-## ----predict, cache=TRUE, dependson="conduct_lm"---------------------------------------
+## ----predict, cache=TRUE, dependson="conduct_lm"---------------------------------
 
-# PREDICT WATER WITHDRAWALS ------------------------------------------------------
+# PREDICT WATER WITHDRAWALS --------------------------------------------------------
 size.gmia <- meier.dt[, .(Country, Continent, Irrigated.Area)] %>%
   .[!Irrigated.Area == 0] %>%
   .[, Irrigated.Area:= log10(Irrigated.Area)] %>%
@@ -425,201 +427,43 @@ water.quantiles <- water.predicted[, .(min = min(pred),
                                    .(Continent, Country)] %>%
   .[order(Country, Continent)]
 
-# PLot
-tmp <- water.dt[Country %in% meier.dt[, Country]] %>%
-  merge(., water.quantiles, by = c("Country", "Continent")) %>%
-  .[, da:= ifelse(Water.Withdrawn > min & Water.Withdrawn < max, "Yes", "No")]
 
-tmp[, .N, .(Country, da, Continent)] %>%
-  .[da == "Yes"] %>%
-  ggplot(., aes(N)) +
-  geom_bar() +
-  labs(y = "Nº of countries") +
-  facet_wrap(~Continent) + 
-  theme_AP()
+## ----plot_predicted, cache=TRUE, dependson=c("predict", "conduct_lm", "final_water_dataset"), dev="tikz", fig.height=6, fig.width=5.7, fig.cap="Validation of our approach. The black dots and the error bars show the range of irrigation water withdrawal values predicted from irrigated areas only. The colored dots show the irrigation water withdrawal values outputted by Global Hydrological Models and FAO-based datasets."----
 
-######################################
-######################################
-
-
-
-mei <- fread("meier.csv") %>%
-  .[!Continent == "Oceania"] %>%
-  na.omit() %>%
-  setnames(., "Codes", "Code") 
-
-cols <- colnames(mei)[-c(1:3)]
-
-
-mei[, (cols):= lapply(.SD, log10), .SDcols = (cols)]
-
-size <- melt(mei, measure.vars = cols, 
-             variable.name = "Area.Dataset", 
-             value.name = "Irrigated.Area") %>%
-  NaRV.omit()
-
-
-countries <- split(size, size$Continent) %>%
-  lapply(., function(x) x[, Country]) %>%
-  lapply(., data.table)
-
-areas <- split(size, size$Continent) %>%
-  lapply(., function(x) x[, Irrigated.Area]) %>%
-  lapply(., data.frame) %>%
-  lapply(., function(x) setnames(x, "X..i..", "Irrigated.Area"))
-
-
-
-tmp.regressions <- regressions %>%
-  split(., .$Continent)
-
-out <- list()
-for(i in names(tmp.regressions)) {
-  out[[i]] <- mutate(tmp.regressions[[i]], 
-                     pred = map(fit, .f = ~predict(., areas[[i]])))
-}
-
-water.predicted <- lapply(out, function(x) {
-  select(x, Continent, Water.Dataset, Imputation.Method, Iteration, pred) %>%
-    unnest(pred) %>%
-    data.table()
-})
-
-out <- list()
-for(i in names(water.predicted)) {
-  out[[i]] <- water.predicted[[i]][, Country:= rep(countries[[i]][, V1], 
-                                                   times = nrow(water.predicted[[i]]) / 
-                                                     nrow(countries[[i]]))]
-}
-
-water.predicted <- rbindlist(water.predicted) %>%
-  .[, pred:= 10 ^ pred]
-
-# Compute quantiles
-water.quantiles <- water.predicted[, .(min = min(pred), 
-                                       max = max(pred), 
-                                       q0.025 = quantile(pred, 0.025), 
-                                       q0.1 = quantile(pred, 0.1), 
-                                       q0.25 = quantile(pred, 0.25),
-                                       q0.5 = quantile(pred, 0.5), 
-                                       q0.75 = quantile(pred, 0.75), 
-                                       q0.975 = quantile(pred, 0.975),
-                                       q0.99 = quantile(pred, 0.99), 
-                                       q1 = quantile(pred, 1), 
-                                       mean = mean(pred), 
-                                       median = median(pred)), 
-                                   .(Continent, Country)] %>%
-  .[order(Country, Continent)]
-
-# PLot
-
-
-water.dt <- fread("water.dt.csv")
-water.quantiles <- fread("water.quantiles.csv")
-
-
-tmp <- water.dt[Country %in% mei[, Country]] %>%
-  merge(., water.quantiles, by = c("Country", "Continent")) %>%
-  .[, da:= ifelse(Water.Withdrawn >= q0.025 & Water.Withdrawn <= q0.975, "Yes", "No")]
-
-tmp[Country == "Afghanistan"]
-
-tmp[Country == "Cyprus"]
-
-
-tmp[da == "Yes", .N, .(Country, Continent)] %>%
-  ggplot(., aes(N)) +
-  geom_bar() +
-  labs(y = "Nº of countries") +
-  facet_wrap(~Continent, ncol = 4) + 
-  theme_AP()
-  
-
+# PLOT PREDICTIONS AGAINST GHM AND FAO OUTPUTS -------------------------------------
 
 water.tmp <- water.dt[Country %in% water.quantiles[, Country]]
-
-
 Cont <- c("Africa", "Americas", "Asia", "Europe")
-
 gg <- list()
 for(i in Cont) {
   gg[[i]] <- water.quantiles[Continent == i] %>%
     ggplot(., aes(reorder(Country, median), median)) +
     geom_point() +
-    geom_point(data = water.tmp[Continent == i], aes(Country, Water.Withdrawn, color = Water.Dataset)) +
+    geom_point(data = water.tmp[Continent == i], 
+               aes(Country, Water.Withdrawn, color = Water.Dataset)) +
     geom_errorbar(aes(ymin = min, 
                       ymax = max)) +
     scale_y_log10(breaks = trans_breaks("log10", function(x) 10 ^ (2 * x)),
                   labels = trans_format("log10", math_format(10 ^ .x))) +
-    labs(y = expression(paste("Water withdrawal ", "", 10^9, m^3/year)), 
+    scale_color_discrete(name = "Water dataset") +
+    labs(y = expression(paste("Water withdrawal ", " ", "(", 10^9, m^3/year, "", ")")), 
          x = "") +
     coord_flip() +
-    theme_AP() +
-    theme(legend.position = "top")
+    theme_AP() 
 }
+gg
 
 
+## ----lookup, cache=TRUE, dependson="conduct_lm"----------------------------------
 
-
-
-
-
-
-
-
-water.quantiles %>%
-  ggplot(., aes(reorder(Country, median), median)) +
-  geom_point() +
-  geom_point(data = water.tmp, aes(Country, Water.Withdrawn, color = Water.Dataset)) +
-  geom_errorbar(aes(ymin = min, 
-                    ymax = max)) +
-  scale_y_log10(breaks = trans_breaks("log10", function(x) 10 ^ (2 * x)),
-                labels = trans_format("log10", math_format(10 ^ .x))) +
-  labs(y = expression(paste("Water withdrawal ", "", 10^9, m^3/year)), 
-       x = "") +
-  coord_flip() +
-  theme_AP() +
-  theme(legend.position = "top")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-tmp[, .N, .(Country, da, Continent)] %>%
-  .[da == "Yes"] %>%
-  ggplot(., aes(N)) +
-  geom_bar() +
-  labs(y = "Nº of countries") +
-  facet_wrap(~Continent) + 
-  theme_AP()
-
-
-
-
-
-
-
-
-
-## ----lookup, cache=TRUE, dependson="conduct_lm"----------------------------------------
-
-# CREATE LOOKUP TABLE ----------------------------------------------------------
+# CREATE LOOKUP TABLE --------------------------------------------------------------
 
 lookup <- setkey(results, index)
 
 
 ## ----export_datasets, cache=TRUE, dependson=c("missing_values", "conduct_lm", "lookup", "predict")----
 
-# EXPORT DATASETS ------------------------------------------------------------------
+# EXPORT DATASETS -------------------------------------------------------------------
 
 fwrite(full.imput, "full.imput.csv")
 fwrite(results, "results.csv")
@@ -628,9 +472,9 @@ fwrite(lookup, "lookup.csv")
 fwrite(water.quantiles, "water.quantiles.csv")
 
 
-## ----set_sample_matrix, cache=TRUE-----------------------------------------------------
+## ----set_sample_matrix, cache=TRUE-----------------------------------------------
 
-# DEFINE THE SETTINGS OF THE SAMPLE MATRIX --------------------------------------
+# DEFINE THE SETTINGS OF THE SAMPLE MATRIX -----------------------------------------
 
 Continents <- c("Africa", "Americas", "Asia", "Europe")
 
@@ -644,9 +488,9 @@ n <- 2 ^ 13
 order <- "third"
 
 
-## ----sample_matrix, cache=TRUE, dependson="set_sample_matrix"--------------------------
+## ----sample_matrix, cache=TRUE, dependson="set_sample_matrix"--------------------
 
-# CREATE THE SAMPLE MATRIX ------------------------------------------------------
+# CREATE THE SAMPLE MATRIX ---------------------------------------------------------
 
 # Create an A, B and AB matrices for each continent
 sample.matrix <- lapply(Continents, function(Continents) 
@@ -662,9 +506,16 @@ names(sample.matrix) <- Continents
 sample.matrix <- lapply(sample.matrix, setnames, parameters)
 
 
+## ----add_diagram, echo=FALSE, fig.align="center", fig.cap="Tree diagram coding the discrete probability distributions of each trigger into each uncertainty level.", out.width = '100%'----
+
+# INSERT THE TREE DIAGRAM ----------------------------------------------------------
+
+knitr::include_graphics("./tree_diagram.pdf")
+
+
 ## ----transform_sample_matrix, cache=TRUE, dependson=c("sample_matrix", "set_sample_matrix", "missing_values")----
 
-# TRANSFORM THE SAMPLE MATRIX ----------------------------------------------------
+# TRANSFORM THE SAMPLE MATRIX ------------------------------------------------------
 
 # Function to transform sample matrix to appropriate distributions
 transform_sample_matrix <- function(dt) {
@@ -686,14 +537,14 @@ sample.matrix <- lapply(sample.matrix, transform_sample_matrix)
 sample.matrix.dt <- rbindlist(sample.matrix, idcol = "Continent")
 
 
-## ----print_matrix)---------------------------------------------------------------------
+## ----print_matrix)---------------------------------------------------------------
 
-# PRINT SAMPLE MATRIX ---------------------------------------------------------
+# PRINT SAMPLE MATRIX --------------------------------------------------------------
 
 print(sample.matrix.dt)
 
 
-## ----define_model, cache=TRUE----------------------------------------------------------
+## ----define_model, cache=TRUE----------------------------------------------------
 
 # THE MODEL -------------------------------------------------------------------
 
@@ -702,7 +553,7 @@ model <- function(X) lookup[.(paste0(X[, 1:4], collapse = "_"))][, r.squared]
 
 ## ----run_model, cache=TRUE, dependson=c("define_model", "set_boot", "lookup", "transform_sample_matrix", "sample_matrix_gmia")----
 
-# RUN THE MODEL----------------------------------------------------------------
+# RUN THE MODEL---------------------------------------------------------------------
 
 # Set number of cores at 75%
 n_cores <- floor(detectCores() * 0.75)
@@ -725,7 +576,7 @@ stopCluster(cl)
 
 ## ----arrange_output, cache=TRUE, dependson=c("run_model", "transform_sample_matrix")----
 
-# ARRANGE MODEL OUTPUT ------------------------------------------------------------
+# ARRANGE MODEL OUTPUT -------------------------------------------------------------
 
 sample.matrix.dt <- cbind(sample.matrix.dt, r.squared) 
 
@@ -737,9 +588,9 @@ fwrite(sample.matrix.dt, "sample.matrix.dt.csv")
 fwrite(AB.dt, "AB.dt.csv")
 
 
-## ----quantiles, cache=TRUE, dependson="arrange_output"---------------------------------
+## ----quantiles, cache=TRUE, dependson="arrange_output"---------------------------
 
-# COMPUTE QUANTILES AND MEAN ------------------------------------------------------
+# COMPUTE QUANTILES AND MEAN -------------------------------------------------------
 
 AB.dt[, .(q0.025 = quantile(r.squared, 0.025), 
           q0.1 = quantile(r.squared, 0.1), 
@@ -753,9 +604,9 @@ AB.dt[, .(q0.025 = quantile(r.squared, 0.025),
           median = median(r.squared)), Continent]
 
 
-## ----plot_uncertainty, cache=TRUE, dependson="arrange_output", dev="tikz", fig.height=5, fig.width=2.5, fig.cap="Uncertainty in the model output. a) Uncertainty in the model goodness of fit. All sources of uncertainty have been taken into account except the selection between OLS and OLS robust (trigger X2). Robust OLS does not allow to compute $r^2$. b) Uncertainty in the slope."----
+## ----plot_uncertainty, cache=TRUE, dependson="arrange_output", dev="tikz", fig.height=5, fig.width=2.5, fig.cap="Uncertainty in the empirical distribution of $r^2$."----
 
-# PLOT UNCERTAINTY ------------------------------------------------------------
+# PLOT UNCERTAINTY -----------------------------------------------------------------
 
 # Plot r2
 unc.plot <- ggplot(AB.dt, aes(r.squared)) + 
@@ -771,9 +622,9 @@ unc.plot <- ggplot(AB.dt, aes(r.squared)) +
 unc.plot
 
 
-## ----plot_uncertainty_GHM, cache=TRUE, dependson="arrange_output"----------------------
+## ----plot_uncertainty_GHM, cache=TRUE, dependson="arrange_output"----------------
 
-# PLOT UNCERTAINTY IN EACH GHM AND FAO-BASED DATASET -----------------------------
+# PLOT UNCERTAINTY IN EACH GHM AND FAO-BASED DATASET -------------------------------
 
 unc.GHM <- AB.dt %>%
   ggplot(., aes(reorder(X1, r.squared), r.squared, fill = Continent)) +
@@ -795,19 +646,19 @@ unc.GHM <- AB.dt %>%
 legend <- get_legend(unc.GHM + theme(legend.position = "top"))
 
 
-## ----merge_plots, cache=TRUE, dependson=c("plot_uncertainty", "plot_uncertainty_GHM", "run_model"), fig.height=4.5, fig.width=5.2, dev="tikz"----
+## ----merge_plots, cache=TRUE, dependson=c("plot_uncertainty", "plot_uncertainty_GHM", "run_model"), fig.height=4, fig.width=5.2, dev="tikz"----
 
-# MERGE PLOTS --------------------------------------------------------------------
+# MERGE PLOTS ----------------------------------------------------------------------
 
 bottom <- plot_grid(unc.plot, unc.GHM, ncol = 2, 
                     rel_widths = c(0.5, 1), labels = "auto")
-plot_grid(legend, bottom, ncol = 1, rel_heights = c(0.1, 1))
+all <- plot_grid(legend, bottom, ncol = 1, rel_heights = c(0.1, 1))
 
 
 ## ----cumulative_r2, cache=TRUE, dependson="arrange_output", dev = "tikz", fig.height=2.2, fig.width=3.3, fig.cap="Cumulative empirical distribution for $r^2$."----
 
 
-# PLOT CUMULATIVE EMPIRICAL DISTRIBUTION FOR R2 ----------------------------------
+# PLOT CUMULATIVE EMPIRICAL DISTRIBUTION FOR R2 ------------------------------------
 
 ggplot(AB.dt, aes(r.squared, colour = Continent)) + 
   stat_ecdf() +
@@ -817,9 +668,9 @@ ggplot(AB.dt, aes(r.squared, colour = Continent)) +
   theme_AP() 
 
 
-## ----scatterplots, cache=TRUE, dependson="arrange_output", fig.height=7, fig.width=5.3----
+## ----scatterplots, cache=TRUE, dependson="arrange_output", fig.height=7, fig.width=5.3, fig.cap="Scatterplots of $r^2$ against the triggers' levels."----
 
-# PLOT SCATTERPLOTS OF PARAMETERS VS MODEL OUTPUT -----------------------------
+# PLOT SCATTERPLOTS OF PARAMETERS VS MODEL OUTPUT ----------------------------------
 
 AB.dt <- AB.dt[, X3:= factor(X3, levels = as.factor(1:m.iterations))]
 
@@ -840,9 +691,9 @@ ggplot(scatter.dt, aes(r.squared, value)) +
         legend.position = "top")
 
 
-## ----sensitivity, cache=TRUE, dependson=c("arrange_output", "set_sample_matrix")-------
+## ----sensitivity, cache=TRUE, dependson=c("arrange_output", "set_sample_matrix")----
 
-# SENSITIVITY ANALYSIS ---------------------------------------------------------
+# SENSITIVITY ANALYSIS -------------------------------------------------------------
 
 # Number of bootstrap replicas
 R <- 1000
@@ -862,9 +713,9 @@ indices <- sample.matrix.dt[, sobol_indices(Y = r.squared,
                             Continent]
 
 
-## ----print_sensitivity, cache=TRUE, dependson="sensitivity"----------------------------
+## ----print_sensitivity, cache=TRUE, dependson="sensitivity"----------------------
 
-# PRINT AND EXPORT SENSITIVITY INDICES --------------------------------------------
+# PRINT AND EXPORT SENSITIVITY INDICES ---------------------------------------------
 
 print(indices[sensitivity %in% c("Si", "Ti")])
 fwrite(indices, "indices.csv")
@@ -872,9 +723,9 @@ fwrite(indices, "indices.csv")
 
 ## ----plot_sobol, cache=TRUE, dependson="sensitivity", dev="tikz", fig.width = 4.7, fig.height=2----
 
-# PLOT UNCERTAINTY AND SOBOL' INDICES ------------------------------------------------
+# PLOT UNCERTAINTY AND SOBOL' INDICES ----------------------------------------------
 
-indices[sensitivity %in% c("Si", "Ti")] %>%
+bottom <- indices[sensitivity %in% c("Si", "Ti")] %>%
   ggplot(., aes(parameters, original, fill = sensitivity)) +
     geom_bar(stat = "identity",
              position = position_dodge(0.6),
@@ -893,17 +744,27 @@ indices[sensitivity %in% c("Si", "Ti")] %>%
     theme_AP() +
     theme(legend.position = "top")
 
+bottom
 
-## ----sum_si, cache=TRUE, dependson="sensitivity"---------------------------------------
 
-# CHECK SUM OF FIRST-ORDER INDICES --------------------------------------------
+## ----merge_all_plots, cache=TRUE, dependson=c("plot_sobol", "merge_plots"), dev="tikz", fig.height=5.7, fig.width=5.2, fig.cap="Uncertainty and sensitivity analysis. a) Empirical distribution for $r^2$ at the continental level. b) Boxplots of $r^2$ values obtained when regressions where run with GHM (in bold) and FAO-based datasets. c) Sobol' indices. $S_i$ and $T_i$ refer respectively to Sobol' first and total order indices. $S_i$ measures the influence of a parameter in the model output, while $T_i$ measures the influence of a parameter jointly with its interactions."----
+
+# MERGE UNCERTAINTY AND SENSITIVITY ANALYSIS PLOTS ---------------------------------
+
+plot_grid(all, bottom, align = "hv", rel_heights = c(0.8, 0.4), 
+          labels = c("", "c"), ncol = 1)
+
+
+## ----sum_si, cache=TRUE, dependson="sensitivity"---------------------------------
+
+# CHECK SUM OF FIRST-ORDER INDICES -------------------------------------------------
 
 indices[sensitivity == "Si",  sum(original), Continent]
 
 
 ## ----plot_sobol_second_third, cache=TRUE, dependson="sensitivity", dev = "tikz", fig.height = 2.3, fig.width=4.3, fig.cap="High-order interactions between the triggers."----
 
-# PLOT SOBOL' INDICES (SECOND AND THIRD ORDER) --------------------------------
+# PLOT SOBOL' INDICES (SECOND AND THIRD ORDER) -------------------------------------
 
 indices[sensitivity == "Sij" | sensitivity == "Sijk"] %>%
   .[low.ci > 0] %>%
@@ -926,9 +787,9 @@ indices[sensitivity == "Sij" | sensitivity == "Sijk"] %>%
   theme_AP()
 
 
-## ----session_information---------------------------------------------------------------
+## ----session_information---------------------------------------------------------
 
-# SESSION INFORMATION ------------------------------------------------------------
+# SESSION INFORMATION --------------------------------------------------------------
 
 sessionInfo()
 

@@ -2,6 +2,7 @@
 title: "The Achilles heel of Global Hydrological Models"
 subtitle: "R code"
 author: "Arnald Puy"
+date: "June 3 2020"
 header-includes:
   - \usepackage[font=footnotesize]{caption}
   - \usepackage{dirtytalk}
@@ -22,7 +23,7 @@ output:
     toc_depth: '2'
 link-citations: yes
 fontsize: 11pt
-bibliography: 
+bibliography:
   - /Users/arnald/Documents/bibtex/LATEX_water_withdrawal.bib
 ---
 
@@ -33,7 +34,7 @@ knitr::opts_chunk$set(echo = TRUE)
 \newpage 
 
 # Presentation
-This document presents the workflow behind the paper "The Achilles heel of Global Hydrological Models", by A. Puy, S. Lo Piano, and A. Saltelli, whose abstract is the following:
+This document presents the workflow of the paper "The Achilles heel of Global Hydrological Models", by A. Puy, S. Lo Piano, and A. Saltelli, currently under review. The abstract is the following:
 
 \vspace{4mm}
 
@@ -44,7 +45,7 @@ This document presents the workflow behind the paper "The Achilles heel of Globa
 Once all datasets required for the analysis have been acquired from the appropriate sources, the results of the paper should be fully reproducible in any personal computer. Questions about the code or the computational design should be addressed to A. Puy (apuy@princeton.edu).
 
 # Preliminary functions
-We start by creating a function to load all required libraries for the analysis in one go. We also set a checkpoint to ensure that our code is fully reproducible for anyone anytime. Finally, we design a short function that will allow to keep the same theme in all plotted figures.
+We start by creating a function to load all required libraries for the analysis in one go. We also set a checkpoint to ensure that our code is fully reproducible for anyone anytime. Finally, we design a short theme function for all the plots that will be produced in the analysis.
 
 ```{r load_packages, results="hide", message=FALSE, warning=FALSE}
 
@@ -101,11 +102,11 @@ For the FAO-based datasets, we use the irrigation water withdrawal values report
 ## Loading functions
 Here we define some functions that will be applied later on to read in and clean the datasets just mentioned. 
 
-`country_code` will unify the country names and provide each country with its United Nations code to avoid any confusion during the processing of the data. 
+`country_code` unifies the country names across datasets and provides each country with its United Nations code to avoid any confusion during the processing of the data. 
 
 `coords2country` transforms the coordinates of the .nc files to the appropriate country names. 
 
-`get_nc_data` is tailored to specifically extract irrigation water withdrawal data at the country level from the datasets compiled by @Huang2018b. Note that inside the function there are calls to `country_code` and `coors2country` to transform each longitude and latitude value to a country name.
+`get_nc_data` is tailored to specifically extract irrigation water withdrawal data at the country level from the datasets compiled by @Huang2018b. Note that there are calls to `country_code` and `coors2country` inside the function to transform each longitude and latitude value to a country name.
 
 `open_nc_files` is tailored to specifically extract irrigation water withdrawal data at the country level from the datasets retrieved from ISIMIP. Again, it includes calls to `country_code` and `coors2country`.
 
@@ -195,9 +196,9 @@ open_nc_files <- function(file, dname) {
 ```
 
 ## Load GHM and FAO-based datasets
-In the next code snippet we will read in and clean all eight irrigation water withdrawal datasets. We first load the Aquastat dataset (`table4`), then the Aquastat without missing values (`liu.dt`), the `.nc` files from @Huang2018b (PCR-GLOBWB, H08, LPMjL, WaterGap), and the `.nc` files from ISIMIP (DBHM, MPI-HM).
+In the next code snippet we read in and clean all eight irrigation water withdrawal datasets. We first load the Aquastat dataset (`table4`), then the Aquastat without missing values dataset (`liu.dt`), the `.nc` files from @Huang2018b (PCR-GLOBWB, H08, LPMjL, WaterGap), and the `.nc` files from ISIMIP (DBHM, MPI-HM).
 
-We show at the end of the code chunk that MPI-HM produced an outlier for Gabon. The difference with the values outputted by the other GHM is very large and suggests that it is actually a miscalculation. To prevent this outlier from biasing the computations, we transformed it to `NA` in order to impute it later on.
+We show at the end of the code chunk that the GHM MPI-HM produced an outlier for Gabon. The difference with the values outputted by the other GHM is very large and suggests that it is actually a miscalculation. To prevent this outlier from biasing the computations, we transformed it to `NA` in order to impute it later on.
 
 ```{r water_with_dataset, cache=TRUE, warning=FALSE}
 
@@ -285,7 +286,7 @@ water.dt <- water.dt[, .(Water.Withdrawn = mean(Water.Withdrawn)),
 ```
 
 ## Load FAO-GMIA dataset
-Here we read in the irrigated areas reported by FAO-GMIA. We used the data compiled by @Meier2018, and produce the `meier.dt` dataset.
+Here we read in the irrigated areas reported by FAO-GMIA. We use the data compiled by @Meier2018, and produce the `meier.dt` dataset.
 ```{r area_dataset, cache=TRUE}
 
 # READ IN IRRIGATED AREA DATASET ---------------------------------------------------
@@ -314,7 +315,7 @@ full.dt[is.na(Water.Withdrawn), ] %>%
   .[, unique(Country)]
 ```
 
-Finally, we plot irrigated areas against irrigation water withdrawals. As shown in Figure 1 below, they are clearly related and their trend suggests that the former might actually describe very much the behaviour of the latter. We used this plot as preliminary evidence for the overparametrization of GHM, since a single parameter drives most of the variance in their model output. Given the shape of the scatterplots, the relation between irrigated area and irrigation water withdrawal can very well be modeled with a simple linear regression model.
+Finally, we plot irrigated areas against irrigation water withdrawals. As shown in Figure 1 below, they are clearly related and their trend suggests that the former might actually describe very much the behaviour of the latter. We used this plot as preliminary evidence for the overparametrization of GHM, since a single parameter seems to drive most of the variance of their model outputs. Given the shape of the scatterplots, the relation between irrigated area and irrigation water withdrawal can very well be modeled with a simple linear regression model.
 
 ```{r plot_merged, cache=TRUE, dependson="merge_with_area", dev="tikz", fig.height=3.3, fig.width=5, fig.cap="Scatterplots of irrigated areas reported by FAO-GMIA against irrigation water withdrawals. Each dot is a country."}
 
@@ -337,7 +338,7 @@ full.dt %>%
         strip.text = element_text(size = 6.7))
 ```
 
-In order to set the ground for the computations, which will be launched hereafter, we log-transform both irrigation water withdrawals and irrigated area values, and export all files created so far to `.csv`.
+In order to set the ground for the computations, which will be launched hereafter, we log-transform both irrigation water withdrawals and irrigated area values, and export all files created to `.csv`.
 
 ```{r log10, cache=TRUE, dependson="merge_with_area"}
 
@@ -360,7 +361,7 @@ fwrite(water.dt, "water.dt.csv")
 
 # Missing values
 
-In multiple imputation methods, the proportion of missing values conditions the number of imputations required to obtain an appropriate estimate of the true missing value. @Graham2007, for instance, recommended 20 iterations for 20\%--30\% missing data, and 40 iterations for 50\% missing data. Which iteration to use in the regressions is also a source of uncertainty, which will be duly accounted for in due time. For now, we just calculate the fraction of missing values in each GHM and FAO-based dataset. Figure 2 below shows the results, and indicates that most datasets have c. 10-20\% of missing values. The fact that one dataset shows a much larger proportion of missing values (Aquastat in the Americas, c. 40\%) made us set the number of iterations at 40 to prevent loss of statistical power (see below).
+In multiple imputation methods, the proportion of missing values conditions the number of imputations required to obtain an appropriate estimate of the true missing value. @Graham2007, for instance, recommended 20 iterations for 20\%--30\% missing data, and 40 iterations for 50\% missing data. Which iteration to use in the regressions is also a source of uncertainty, which will be duly accounted for in the next sections. For now, we just calculate the fraction of missing values in each GHM and FAO-based dataset. Figure 2 below shows the results, and indicates that most datasets have c. 10-20\% of missing values. The fact that one dataset shows a much larger proportion of missing values (Aquastat in the Americas, c. 40\%) made us set the number of iterations to 40 to prevent loss of statistical power (see below).
 
 ```{r plot_missing2, cache=TRUE, dependson="log10", fig.height=3, fig.width=4.5, dev="tikz", fig.cap="Proportion of missing values in irrigation water withdrawal per dataset."}
 
@@ -380,7 +381,7 @@ full.dt[, sum(is.na(.SD) == TRUE) / .N,
   theme(legend.position = "top")
 ```
 
-Now we impute the missing values for each continent and irrigation water withdrawal dataset. Given the linear trend between water withdrawals and irrigated areas shown in Figure 1, we selected three possible regression-based multiple imputation methods: bayesian, without model error and bootstrapped. For each method and missing value, we compute 40 different iterations to account for the uncertainty in the true missing value. The result is the dataset `full.imput`, which only contains complete cases.
+Now we impute the missing values for each continent and irrigation water withdrawal dataset. Given the linear trend between water withdrawals and irrigated areas shown in Figure 1, we select three possible regression-based multiple imputation methods: bayesian, without model error and bootstrapped. For each method and missing value, we compute 40 different iterations to account for the uncertainty in the true missing value. The result is the dataset `full.imput`, which only contains complete cases.
 
 ```{r missing, cache=TRUE, dependson="log10", message=FALSE, warning=FALSE}
 
@@ -460,9 +461,9 @@ residuals <- regressions %>%
   data.table()
 ```
 
-The regressions just conducted allow to obtain the coefficients to predict irrigation water withdrawals from irrigated areas only, and account for the main sources of uncertainty in the regression. To check the efficiency of this approach, we predicted irrigation water withdrawal values from the irrigated areas reported by FAO-GMIA [@Siebert2013], and by five other irrigated area products: the IWMI-GIAM [@Thenkabail2009], the GRIPC [@Salmon2015], the Meier dataset [@Meier2018], Aquastat [@FAO2016b] and FAOSTAT [@FAO2017a]. We compared the resulting estimates with the irrigation water withdrawal estimates outputted by GHM and with those reported in FAO-based datasets.
+The regressions just conducted allow to obtain the coefficients to predict irrigation water withdrawals from irrigated areas only. To check the efficiency of this approach, we predict irrigation water withdrawal values from the irrigated areas reported by FAO-GMIA [@Siebert2013], and by five other irrigated area products: the IWMI-GIAM [@Thenkabail2009], the GRIPC [@Salmon2015], the Meier dataset [@Meier2018], Aquastat [@FAO2016b] and FAOSTAT [@FAO2017a]. We compare the resulting estimates with the irrigation water withdrawal estimates outputted by GHM and with those reported in FAO-based datasets.
 
-Once the predictions were done, we created the `water.quantiles` dataset, which reports the min, median, max and several quantiles to describe the uncertainty in irrigation water withdrawals at the country level.
+Once the predictions are done, we create the `water.quantiles` dataset, which reports the min, median, max and several quantiles to describe the uncertainty in irrigation water withdrawals at the country level.
 
 ```{r predict, cache=TRUE, dependson="conduct_lm"}
 
@@ -553,11 +554,11 @@ gg
 ```
 
 # Lookup table
-Our model (see below) will run rowwise, for $i=1,2,...,N$ rows, and it will select an $r^2_i$ obtained given the conditions defined by three triggers: trigger $X_{1_i}$ will define the GHM or FAO-based product to retrieve the irrigation water withdrawal values from; $X_{2_i}$ the multiple imputation method to use to fill out missing values, and $X_{3_i}$ the iteration from the pool of 40 different iterations computed for each missing value.
+Our model (see below) will run rowwise, for $i=1,2,...,N$ rows, and it will select an $r^2_i$ obtained given the conditions defined by three triggers: trigger $X_{1_i}$ will select an GHM or FAO-based product from where to retrieve $r^2$ values; $X_{2_i}$ the multiple imputation method used to fill missing values, and $X_{3_i}$ the specific iteration from the pool of 40 different iterations computed for each missing value.
 
-In order to speed up these computations, we now create a lookup table with all possible $r^2$ values given all possible combinations for Continent, $X_1$, $X_2$ and $X_3$ (`lookup`). We sort `lookup` by all these elements through the use of the `setkey` function, which increases the speed of binary search.
+In order to speed up these computations, we create a lookup table with all possible $r^2$ values given all possible combinations between Continent, $X_1$, $X_2$ and $X_3$ (`lookup`). We sort `lookup` by all these elements through the use of the `setkey` function, which increases the speed of binary search.
 
-We finally export all datasets created so far to `.csv` files.
+We finally export all datasets to `.csv` files.
 
 ```{r lookup, cache=TRUE, dependson="conduct_lm"}
 
@@ -600,9 +601,9 @@ order <- "third"
 ```
 
 ## Sample matrix
-Now we create the sample matrix, where each row represents a sample point and each column a trigger. We use the function `sobol_matrices` of the `sensobol` package [@Puyk]. In this case, since we will compute first, second, third and total-order indices using the @Jansen1999 estimators, we create an $\textbf{A}$, a $\textbf{B}$ matrix, and $k$ $\textbf{A}_{B} ^{(j)}$ matrices, where all columns come from $\textbf{A}$ except the $j$-th, which comes from $\textbf{B}$, for $k=3$ (the number of triggers). Overall, this leads to a total computational cost of $C=N(k+2)=2^{13}(3+2)=40960$ model runs per continent.
+Now we create the sample matrix, where each row represents a sample point and each column a trigger. We use the function `sobol_matrices` of the `sensobol` package [@Puyk]. In this case, since we will compute first, second, third and total-order Sobol' indices using the @Jansen1999 estimators, we create an $\textbf{A}$, a $\textbf{B}$ matrix, and $k$ $\textbf{A}_{B} ^{(j)}$ matrices, where all columns come from $\textbf{A}$ except the $j$-th, which comes from $\textbf{B}$, for $k=3$ (the number of triggers). Overall, this leads to a total computational cost of $C=N(k+2)=2^{13}(3+2)=40960$ model runs per continent.
 
-The matrices created with the `sobol_matrices` function use Sobol' Quasi-Random Number sequences [@Sobol1967; @Sobol1976], which are uniformly distributed in $[0,1]$. We will transform these sequences to their appropriate probability distributions in the next code snippet.
+The matrices created with the `sobol_matrices` function use Sobol' Quasi-Random Number sequences [@Sobol1967; @Sobol1976], which are uniformly distributed in $[0,1]$. We transform these sequences to their appropriate probability distributions in the next code snippet.
 
 ```{r sample_matrix, cache=TRUE, dependson="set_sample_matrix"}
 
@@ -622,7 +623,7 @@ names(sample.matrix) <- Continents
 sample.matrix <- lapply(sample.matrix, setnames, parameters)
 ```
 
-The code below sets the function `transform_sample_matrix`, which transforms the columns of the sample matrix into their appropriate distributions ([$X_1\sim\mathcal{DU}(1,8)$; $X_2\sim\mathcal{DU}(1,3)$; $X_3\sim\mathcal{DU}(1,40)$]). We link each discrete number in each distribution with a specific irrigation water withdrawal product, imputation method and iteration (Figure 7).
+The code below defines the function `transform_sample_matrix`, which transforms the columns of the sample matrix into their appropriate distributions ([$X_1\sim\mathcal{DU}(1,8)$; $X_2\sim\mathcal{DU}(1,3)$; $X_3\sim\mathcal{DU}(1,40)$]). We link each discrete number in each distribution with a specific irrigation water withdrawal product, imputation method and iteration (Figure 7).
 
 ```{r add_diagram, echo=FALSE, fig.align="center", fig.cap="Tree diagram coding the discrete probability distributions of each trigger into each uncertainty level.", out.width = '100%'}
 
@@ -666,7 +667,7 @@ print(sample.matrix.dt)
 
 ## The model
 
-The model is simply a one-line function that runs in the sample matrix as follows: at the $i$-th row, it creates a vector with all the conditions set by $X_{1_i}, X_{2_i}, X_{3_i}$, and uses this vector to extract from the lookup table the $r^2_i$ value according to these conditions.
+The model is simply a one-line function that runs in the sample matrix as follows: for the $i$-th row, it creates a vector with all the conditions set by $X_{1_i}, X_{2_i}, X_{3_i}$, and uses this vector to extract from the lookup table the $r^2_i$ value according to these conditions.
 
 ```{r define_model, cache=TRUE}
 
@@ -798,7 +799,7 @@ ggplot(AB.dt, aes(r.squared, colour = Continent)) +
 ```
 
 # Sensitivity analysis
-And in this last section, we conduct the sensitivity analysis. We first plot the triggers against $r^2$ values, which allows to map back the model output into each of the triggers' levels. The resulting plot is Fig. XX.
+And in this last section, we conduct the sensitivity analysis. We first plot the triggers against $r^2$ values, which allows to map back the model output into each of the triggers' levels. The resulting plot is Figure 10.
 
 ```{r scatterplots, cache=TRUE, dependson="arrange_output", fig.height=7, fig.width=5.3, fig.cap="Scatterplots of $r^2$ against the triggers' levels."}
 
@@ -823,7 +824,7 @@ ggplot(scatter.dt, aes(r.squared, value)) +
         legend.position = "top")
 ```
 
-We finally compute the Sobol' indices using the `sobol_indices` function of the sensobol package [@Puyk], and bootstrap the results 1000 times. We also plot first, second, third and total-order indices in different plots, and export the main results.
+We finally compute the Sobol' indices using the `sobol_indices` function of the sensobol package [@Puyk], and bootstrap the results 1000 times. We also plot first, second, third and total-order indices in different plots, and export the results.
 
 ```{r sensitivity, cache=TRUE, dependson=c("arrange_output", "set_sample_matrix")}
 
