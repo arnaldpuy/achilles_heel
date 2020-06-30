@@ -1,8 +1,8 @@
-## ----setup, include=FALSE--------------------------------------------------------
+## ----setup, include=FALSE--------------------------------------
 knitr::opts_chunk$set(echo = TRUE)
 
 
-## ----load_packages, results="hide", message=FALSE, warning=FALSE-----------------
+## ----load_packages, results="hide", message=FALSE, warning=FALSE----
 
 # LOAD PACKAGES ---------------------------------------------------------------
 
@@ -47,7 +47,7 @@ theme_AP <- function() {
 }
 
 
-## ----functions_data, cache=TRUE--------------------------------------------------
+## ----functions_data, cache=TRUE--------------------------------
 
 # CREATE FUNCTIONS -----------------------------------------------------------------
 
@@ -132,7 +132,7 @@ open_nc_files <- function(file, dname) {
 }
 
 
-## ----water_with_dataset, cache=TRUE, warning=FALSE-------------------------------
+## ----water_with_dataset, cache=TRUE, warning=FALSE-------------
 
 # READ IN DATASETS ON IRRIGATION WATER WITHDRAWAL ----------------------------------
 
@@ -213,7 +213,7 @@ water.dt <- water.dt[, .(Water.Withdrawn = mean(Water.Withdrawn)),
                      .(Water.Dataset, Country, Code, Continent)]
 
 
-## ----area_dataset, cache=TRUE----------------------------------------------------
+## ----area_dataset, cache=TRUE----------------------------------
 
 # READ IN IRRIGATED AREA DATASET ---------------------------------------------------
 
@@ -237,7 +237,7 @@ full.dt[is.na(Water.Withdrawn), ] %>%
   .[, unique(Country)]
 
 
-## ----plot_merged, cache=TRUE, dependson="merge_with_area", dev="tikz", fig.height=3.3, fig.width=5, fig.cap="Scatterplots of irrigated areas reported by FAO-GMIA against irrigation water withdrawals. Each dot is a country."----
+## ----plot_merged, cache=TRUE, dependson="merge_with_area", dev="tikz", fig.height=3, fig.width=4.7, fig.cap="Scatterplots of irrigated areas reported by FAO-GMIA against irrigation water withdrawals. Each dot is a country."----
 
 # PLOT -----------------------------------------------------------------------------
 
@@ -245,20 +245,19 @@ full.dt %>%
   na.omit() %>%
   ggplot(., aes(Irrigated.Area, Water.Withdrawn, 
                 color = Continent)) +
-  geom_point(size = 0.7) +
+  geom_point(size = 0.6) +
   scale_x_log10(breaks = trans_breaks("log10", function(x) 10 ^ (4 * x)),
                 labels = trans_format("log10", math_format(10 ^ .x))) +
   scale_y_log10(breaks = trans_breaks("log10", function(x) 10 ^ (2 * x)),
                 labels = trans_format("log10", math_format(10 ^ .x))) +
   labs(x = "Irrigated area (ha)", 
-       y = expression(paste("Water withdrawal~", "", 10^9, m^3/year))) +
+       y = expression(paste("Water withdrawal ", " ", "(", 10^9, m^3/year, "", ")"))) +
   facet_wrap(~Water.Dataset, ncol = 4) +
   theme_AP() +
-  theme(legend.position = "top", 
-        strip.text = element_text(size = 6.7))
+  theme(legend.position = "top")
 
 
-## ----log10, cache=TRUE, dependson="merge_with_area"------------------------------
+## ----log10, cache=TRUE, dependson="merge_with_area"------------
 
 # TRANSFORM DATASET ----------------------------------------------------------------
 
@@ -269,7 +268,7 @@ cols_group <- c("Continent", "Water.Dataset")
 full.dt <- full.dt[, (cols):= lapply(.SD, log10), .SDcols = (cols)]
 
 
-## ----export_dataset_log10, cache=TRUE, dependson="log10"-------------------------
+## ----export_dataset_log10, cache=TRUE, dependson="log10"-------
 
 # EXPORT FULL DATASET WITH MISSING VALUES --------------------------------------------
 
@@ -295,7 +294,7 @@ full.dt[, sum(is.na(.SD) == TRUE) / .N,
   theme(legend.position = "top")
 
 
-## ----missing, cache=TRUE, dependson="log10", message=FALSE, warning=FALSE--------
+## ----missing, cache=TRUE, dependson="log10", message=FALSE, warning=FALSE----
 
 # IMPUTATION OF MISSING VALUES -----------------------------------------------------
 
@@ -339,7 +338,7 @@ full.imput <- imput[, lapply(.SD, unlist),
                     .(Continent,Water.Dataset, Imputation.Method)]
 
 
-## ----conduct_lm, cache=TRUE, dependson=c("missing_values", "missing")------------
+## ----conduct_lm, cache=TRUE, dependson=c("missing_values", "missing")----
 
 # COMPUTE LINEAR REGRESSIONS --------------------------------------------------------
 
@@ -368,7 +367,7 @@ residuals <- regressions %>%
   data.table()
 
 
-## ----predict, cache=TRUE, dependson="conduct_lm"---------------------------------
+## ----predict, cache=TRUE, dependson="conduct_lm"---------------
 
 # PREDICT WATER WITHDRAWALS --------------------------------------------------------
 size.gmia <- meier.dt[, .(Country, Continent, Irrigated.Area)] %>%
@@ -428,7 +427,7 @@ water.quantiles <- water.predicted[, .(min = min(pred),
   .[order(Country, Continent)]
 
 
-## ----plot_predicted, cache=TRUE, dependson=c("predict", "conduct_lm", "final_water_dataset"), dev="tikz", fig.height=6, fig.width=5.7, fig.cap="Validation of our approach. The black dots and the error bars show the range of irrigation water withdrawal values predicted from irrigated areas only. The colored dots show the irrigation water withdrawal values outputted by Global Hydrological Models and FAO-based datasets."----
+## ----plot_predicted, cache=TRUE, dependson=c("predict", "conduct_lm", "final_water_dataset"), dev="tikz", fig.height=6, fig.width=5.7, fig.cap="Validation of our approach. The black dots and the error bars show the range of irrigation water withdrawal values predicted from irrigated areas only. The colored dots show the irrigation water withdrawal values outputted by Global Hydrological Models (DBHM, Ho8, LPJmL, MPI-HM, PCR-GLOBWB, WaterGap) and FAO-based datasets (Aquastat, Liu et al. 2016)."----
 
 # PLOT PREDICTIONS AGAINST GHM AND FAO OUTPUTS -------------------------------------
 
@@ -454,7 +453,7 @@ for(i in Cont) {
 gg
 
 
-## ----lookup, cache=TRUE, dependson="conduct_lm"----------------------------------
+## ----lookup, cache=TRUE, dependson="conduct_lm"----------------
 
 # CREATE LOOKUP TABLE --------------------------------------------------------------
 
@@ -472,7 +471,7 @@ fwrite(lookup, "lookup.csv")
 fwrite(water.quantiles, "water.quantiles.csv")
 
 
-## ----set_sample_matrix, cache=TRUE-----------------------------------------------
+## ----set_sample_matrix, cache=TRUE-----------------------------
 
 # DEFINE THE SETTINGS OF THE SAMPLE MATRIX -----------------------------------------
 
@@ -488,7 +487,7 @@ n <- 2 ^ 13
 order <- "third"
 
 
-## ----sample_matrix, cache=TRUE, dependson="set_sample_matrix"--------------------
+## ----sample_matrix, cache=TRUE, dependson="set_sample_matrix"----
 
 # CREATE THE SAMPLE MATRIX ---------------------------------------------------------
 
@@ -537,14 +536,14 @@ sample.matrix <- lapply(sample.matrix, transform_sample_matrix)
 sample.matrix.dt <- rbindlist(sample.matrix, idcol = "Continent")
 
 
-## ----print_matrix)---------------------------------------------------------------
+## ----print_matrix)---------------------------------------------
 
 # PRINT SAMPLE MATRIX --------------------------------------------------------------
 
 print(sample.matrix.dt)
 
 
-## ----define_model, cache=TRUE----------------------------------------------------
+## ----define_model, cache=TRUE----------------------------------
 
 # THE MODEL -------------------------------------------------------------------
 
@@ -588,7 +587,7 @@ fwrite(sample.matrix.dt, "sample.matrix.dt.csv")
 fwrite(AB.dt, "AB.dt.csv")
 
 
-## ----quantiles, cache=TRUE, dependson="arrange_output"---------------------------
+## ----quantiles, cache=TRUE, dependson="arrange_output"---------
 
 # COMPUTE QUANTILES AND MEAN -------------------------------------------------------
 
@@ -622,7 +621,7 @@ unc.plot <- ggplot(AB.dt, aes(r.squared)) +
 unc.plot
 
 
-## ----plot_uncertainty_GHM, cache=TRUE, dependson="arrange_output"----------------
+## ----plot_uncertainty_GHM, cache=TRUE, dependson="arrange_output"----
 
 # PLOT UNCERTAINTY IN EACH GHM AND FAO-BASED DATASET -------------------------------
 
@@ -713,7 +712,7 @@ indices <- sample.matrix.dt[, sobol_indices(Y = r.squared,
                             Continent]
 
 
-## ----print_sensitivity, cache=TRUE, dependson="sensitivity"----------------------
+## ----print_sensitivity, cache=TRUE, dependson="sensitivity"----
 
 # PRINT AND EXPORT SENSITIVITY INDICES ---------------------------------------------
 
@@ -721,7 +720,7 @@ print(indices[sensitivity %in% c("Si", "Ti")])
 fwrite(indices, "indices.csv")
 
 
-## ----plot_sobol, cache=TRUE, dependson="sensitivity", dev="tikz", fig.width = 4.7, fig.height=2----
+## ----plot_sobol, cache=TRUE, dependson="sensitivity", dev="tikz", fig.width = 4.7, fig.height=2, fig.cap="Sobol' indices. $S_i$ and $T_i$ refer respectively to Sobol' first and total order indices. $S_i$ measures the influence of a parameter in the model output, while $T_i$ measures the influence of a parameter jointly with its interactions."----
 
 # PLOT UNCERTAINTY AND SOBOL' INDICES ----------------------------------------------
 
@@ -755,14 +754,14 @@ plot_grid(all, bottom, align = "hv", rel_heights = c(0.8, 0.4),
           labels = c("", "c"), ncol = 1)
 
 
-## ----sum_si, cache=TRUE, dependson="sensitivity"---------------------------------
+## ----sum_si, cache=TRUE, dependson="sensitivity"---------------
 
 # CHECK SUM OF FIRST-ORDER INDICES -------------------------------------------------
 
 indices[sensitivity == "Si",  sum(original), Continent]
 
 
-## ----plot_sobol_second_third, cache=TRUE, dependson="sensitivity", dev = "tikz", fig.height = 2.3, fig.width=4.3, fig.cap="High-order interactions between the triggers."----
+## ----plot_sobol_second_third, cache=TRUE, dependson="sensitivity", dev = "tikz", fig.height = 2.3, fig.width=4.3, fig.cap="High-order interactions between the triggers. The dots and the errorbars show the mean and the 95\\% confidence intervals after bootstraping (R=1000)."----
 
 # PLOT SOBOL' INDICES (SECOND AND THIRD ORDER) -------------------------------------
 
@@ -787,7 +786,7 @@ indices[sensitivity == "Sij" | sensitivity == "Sijk"] %>%
   theme_AP()
 
 
-## ----session_information---------------------------------------------------------
+## ----session_information---------------------------------------
 
 # SESSION INFORMATION --------------------------------------------------------------
 
