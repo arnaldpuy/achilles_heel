@@ -2,7 +2,7 @@
 title: "Irrigated areas drive irrigation water withdrawals"
 subtitle: "R code"
 author: "Arnald Puy"
-date: "October 2 2020"
+date: "April 7 2020"
 header-includes:
   - \usepackage[font=footnotesize]{caption}
   - \usepackage{dirtytalk}
@@ -28,7 +28,7 @@ bibliography:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, dev = "tikz")
 ```
 
 \newpage 
@@ -76,8 +76,8 @@ dir.create(".checkpoint")
 
 library("checkpoint")
 
-checkpoint("2020-09-08", 
-           R.version ="3.6.3", 
+checkpoint("2021-04-07", 
+           R.version ="4.0.3", 
            checkpointLocation = getwd())
 
 # CUSTOM FUNCTION TO DEFINE THE PLOT THEMES -----------------------------------
@@ -111,7 +111,7 @@ Here we define some functions that will be applied later on to read in and clean
 
 ```{r functions_data, cache=TRUE}
 
-# CREATE FUNCTIONS --------------------------------------------------------------
+# CREATE FUNCTIONS ---------------------------------------------------------------
 
 # Function to obtain UN code, Continent and Country names
 country_code <- function(dt) {
@@ -148,60 +148,280 @@ get_nc_data <- function(nc_file) {
   ww <- ncvar_get(nc, "withd_irr")
   lon <- ncvar_get(nc, "lon")
   lat <- ncvar_get(nc, "lat")
-  water <- rowSums(ww[, 469:ncol(ww)]) # Obtain year values for 2010 only
-  ww.df <- data.frame(cbind(lon, lat, water)) 
-  countries <- coords2country(ww.df[1:nrow(ww.df), 1:2])
-  df <- cbind(countries, ww.df)
-  setDT(df)
-  final <- df[, .(Water.Withdrawn = sum(water)), countries]
-  setnames(final, "countries", "Country")
-  country_code(final)
-  out <- na.omit(final[order(Continent)])
-  out[, Water.Withdrawn:= Water.Withdrawn / 1000] # From mm to m
+  out <- lapply(selected.years, function(x) {
+    water <- rowSums(ww[, vec[[x]]]) 
+    ww.df <- data.frame(cbind(lon, lat, water)) 
+    ww.df <- data.frame(cbind(lon, lat, water)) 
+    countries <- coords2country(ww.df[1:nrow(ww.df), 1:2])
+    df <- cbind(countries, ww.df)
+    setDT(df)
+    final <- df[, .(Water.Withdrawn = sum(water)), countries]
+    setnames(final, "countries", "Country")
+    country_code(final)
+    out <- na.omit(final[order(Continent)])
+    out[, Water.Withdrawn:= Water.Withdrawn / 1000] # From mm to m
+  })
+  names(out) <- selected.years
   return(out)
 }
 
 # Function to load and extract data from .nc files from ISIMIP
-open_nc_files <- function(file, dname) {
+open_nc_files <- function(file, dname, selected.years, vec) {
   ncin <- nc_open(file)
   # get longitude, latitude, time
   lon <- ncvar_get(ncin, "lon")
   lat <- ncvar_get(ncin, "lat")
   # Get variable
   tmp_array <- ncvar_get(ncin, dname)
-  # Retrieve last 12 months
-  # get last year
-  m <- (dim(tmp_array)[3] - 11):dim(tmp_array)[3]
-  tmp_slice <- lapply(m, function(m) tmp_array[, , m])
-  # create dataframe -- reshape data
-  # matrix (nlon*nlat rows by 2 cols) of lons and lats
-  lonlat <- as.matrix(expand.grid(lon,lat))
-  # vector of `tmp` values
-  tmp_vec <- lapply(tmp_slice, function(x) as.vector(x))
-  # create dataframe and add names
-  tmp_df01 <- lapply(tmp_vec, function(x) data.frame(cbind(lonlat, x)))
-  names(tmp_df01) <- m
-  da <- lapply(tmp_df01, data.table) %>%
-    rbindlist(., idcol = "month") %>%
-    na.omit()
-  # Convert coordinates to country
-  countries <- coords2country(da[1:nrow(da), 2:3])
-  df <- cbind(countries, da)
-  setDT(df)
-  out <- na.omit(df)[, .(Water.Withdrawn = sum(x)), countries]
-  out[, Water.Withdrawn:= Water.Withdrawn * 10000]
+  m <- lapply(selected.years, function(x) vec[[x]])
+  
+  out <- lapply(m, function(x) {
+    tmp_slice <- lapply(x, function(y) tmp_array[, , y])
+    # create dataframe -- reshape data
+    # matrix (nlon*nlat rows by 2 cols) of lons and lats
+    lonlat <- as.matrix(expand.grid(lon,lat))
+    # vector of `tmp` values
+    tmp_vec <- lapply(tmp_slice, function(x) as.vector(x))
+    # create dataframe and add names
+    tmp_df01 <- lapply(tmp_vec, function(x) data.frame(cbind(lonlat, x)))
+    names(tmp_df01) <- x
+    da <- lapply(tmp_df01, data.table) %>%
+      rbindlist(., idcol = "month") %>%
+      na.omit()
+    # Convert coordinates to country
+    Country <- coords2country(da[1:nrow(da), 2:3])
+    df <- cbind(Country, da)
+    setDT(df)
+    out <- na.omit(df)[, .(Water.Withdrawn = sum(x)), Country]
+    out[, Water.Withdrawn:= Water.Withdrawn * 10000]
+    out[, Continent:= countrycode(out[, Country], 
+                                  origin = "country.name", 
+                                  destination = "continent")] %>%
+      .[, Code:= countrycode(out[, Country], 
+                             origin = "country.name", 
+                             destination = "un")] %>%
+      .[, Country:= countrycode(out[, Code], 
+                                origin = "un", 
+                                destination = "country.name")] %>%
+      .[!Continent == "Oceania"]
+    setcolorder(out, c("Country", "Continent", "Code", "Water.Withdrawn"))
+  })
   return(out)
 }
 ```
 
-## Load GHM and FAO-based datasets
-In the next code snippet we load and clean all ten irrigation water withdrawal datasets. We first load the Aquastat dataset (`table4`), then the Aquastat without missing values dataset (`liu.dt`), the `.nc` files from @Huang2018b (PCR-GLOBWB, H08, LPMjL, WaterGap), and the `.nc` files from ISIMIP (DBHM, MPI-HM, CLM45, VIC).
+## Load Huang et al. datasets
 
-We show at the end of the code chunk that the GHM MPI-HM produced an outlier for Gabon. The difference with the values outputted by the other GHM is very large and suggests that it is actually a miscalculation. To prevent this outlier from biasing the computations, we transformed it to `NA` in order to impute it later on.
+```{r ghm_datasets, cache=TRUE, dependson="functions_data"}
 
-```{r water_with_dataset, cache=TRUE, warning=FALSE}
+# READ IN GHM DATASETS -----------------------------------------------------------
 
-# READ IN DATASETS ON IRRIGATION WATER WITHDRAWAL ------------------------------
+# Read in Huang et al. datasets -------------------------------
+
+# Define vector with the months and the years
+vecs <- 1:((2010 - 1970) * 12)
+vec <- split(vecs, ceiling(seq_along(vecs) / 12))
+names(vec) <- 1971:2010
+selected.years <- c("1971", "1980", "1990", "2000", "2005")
+
+# Vector with the files
+names_nc_files <- c("withd_irr_lpjml.nc", "withd_irr_pcrglobwb.nc", 
+                    "withd_irr_h08.nc", "withd_irr_watergap.nc")
+
+# Read in datasets
+huang.dt <- mclapply(names_nc_files, function(x) get_nc_data(x), mc.cores = detectCores() * 0.75)
+names.huang <- c("LPJmL", "PCR-GLOBWB", "H08", "WaterGap")
+names(huang.dt) <- names.huang
+
+# ISIMIP datasets ----------------------------------------------
+
+files <- list("dbh_wfdei_nobc_hist_varsoc_co2_airrww_global_monthly_1971_2010.nc", 
+              "mpi-hm_miroc5_ewembi_picontrol_histsoc_co2_airrww_global_monthly_1861_2005.nc", 
+              "vic_wfdei_nobc_hist_pressoc_co2_airrww_global_monthly_1971_2010.nc", 
+              "clm45_gfdl-esm2m_ewembi_historical_2005soc_co2_pirrww_global_monthly_1861_2005.nc")
+
+isimip.dt <- mclapply(files, function(x) {
+  if(x == "mpi-hm_miroc5_ewembi_picontrol_histsoc_co2_airrww_global_monthly_1861_2005.nc") {
+    vecs <- 1:((2005 - 1860) * 12)
+    vec <- split(vecs, ceiling(seq_along(vecs) / 12))
+    names(vec) <- 1861:2005
+    dname <- "airrww"
+  } else if (x == "clm45_gfdl-esm2m_ewembi_historical_2005soc_co2_pirrww_global_monthly_1861_2005.nc") {
+    vecs <- 1:((2005 - 1860) * 12)
+    vec <- split(vecs, ceiling(seq_along(vecs) / 12))
+    names(vec) <- 1861:2005
+    dname <- "pirrww"
+  } else {
+    vecs <- 1:((2010 - 1970) * 12)
+    vec <- split(vecs, ceiling(seq_along(vecs) / 12))
+    names(vec) <- 1971:2010
+    dname <- "airrww"
+  }
+  open_nc_files(file = x, dname = dname, selected.years = selected.years, 
+                vec = vec) 
+}, 
+mc.cores = detectCores() * 0.75)
+
+names.isimip <- c("DBHM", "MPI-HM", "VIC", "CLM45")
+names(isimip.dt) <- names.isimip
+
+for(i in names(isimip.dt)) {
+  names(isimip.dt[[i]]) <- selected.years
+}  
+```
+
+## Load historic FAO-GMIA
+
+```{r historic_fao_gmia, cache=TRUE, dependson="ghm_datasets"}
+
+# READ IN HISTORIC FAO-GMIA ------------------------------------------------------
+
+gmia.hist <- fread("FAO_GMIA_historic.csv") 
+gmia.hist <- gmia.hist[, Continent:= countrycode(gmia.hist[, Country], 
+                                                 origin = "country.name", 
+                                                 destination = "continent")] %>%
+  .[, Code:= countrycode(gmia.hist[, Country], 
+                         origin = "country.name", 
+                         destination = "un")] %>%
+  .[, Country:= countrycode(gmia.hist[, Code], 
+                            origin = "un", 
+                            destination = "country.name")] %>%
+  .[!Continent == "Oceania"]
+
+# Create list with the columns selected
+
+dt.tmp <- lapply(c("AEI_1970", paste("AEI_", c(seq(1980, 2000, 10), 2005), sep = "")), function(x)
+  gmia.hist[, .SD, .SDcols = c("Country", "Code", "Continent", x)])
+names(dt.tmp) <- selected.years
+
+# MERGE GHM AND HISTORIC FAO-GMIA ------------------------------------------------
+
+all.ghm <- c(huang.dt, isimip.dt)
+ghm.dt <- lapply(names(all.ghm), function(x)
+  lapply(selected.years, function(y)
+    all.ghm[[x]][[y]][, merge(.SD, dt.tmp[[y]], by = c("Country", "Code", "Continent"), 
+                              all.y = TRUE)])) %>%
+  lapply(., function(x) lapply(x, function(y) setnames(y, 5, "AEI") %>%
+                                 na.omit()))
+
+names(ghm.dt) <- c(names.huang, names.isimip)
+
+for(i in names(ghm.dt)) {
+  names(ghm.dt[[i]]) <- selected.years
+}     
+```
+
+## Long-term trends between irrigated areas and irrigation water withdrawals
+
+```{r plot_historic_fao_gmia, cache=TRUE, dependson="historic_fao_gmia", fig.height=4.3, fig.width=5.4}
+
+# PLOT GHM WATER WITHDRAWALS THROUGH TIME (1970-2005) ------------------------------
+
+tmp <- lapply(ghm.dt, function(x) rbindlist(x, idcol = "Year"))
+
+# Plot
+gg <- list()
+for(i in 1:length(tmp)) {
+  gg[[i]] <- ggplot(tmp[[i]], aes(AEI, Water.Withdrawn, 
+                                  color = Continent)) +
+    geom_point(size = 0.4) +
+    scale_x_log10(breaks = trans_breaks("log10", function(x) 10 ^ (2 * x)),
+                  labels = trans_format("log10", math_format(10 ^ .x))) +
+    scale_y_log10(breaks = trans_breaks("log10", function(x) 10 ^ (2 * x)),
+                  labels = trans_format("log10", math_format(10 ^ .x))) +
+    labs(x = "Irrigated area (ha)", 
+         y = expression(paste("Water withdrawal ", " ", "(", 10^9, m^3/year, "", ")"))) +
+    facet_wrap(~Year) +
+    theme_AP() +
+    theme(legend.position = "top", 
+          strip.background = element_rect(fill = "white")) +
+    ggtitle(names(tmp[i]))
+}
+
+gg
+```
+
+```{r long_term_trends, cache=TRUE, dependson=c("functions_data", "historic_fao_gmia")}
+
+# ANALYZE LONG-TERM HISTORICAL TRENDS --------------------------------------------
+
+files <- list("pcr-globwb_gfdl-esm2m_ewembi_historical_histsoc_co2_airrww_global_monthly_1861_2005.nc", 
+              "mpi-hm_gfdl-esm2m_ewembi_historical_histsoc_co2_airrww_global_monthly_1861_2005.nc", 
+              "lpjml_miroc5_ewembi_historical_histsoc_co2_airrww_global_monthly_1861_2005.nc", 
+              "h08_miroc5_ewembi_historical_histsoc_co2_airrww_global_monthly_1861_2005.nc")
+
+vecs <- 1:((2005 - 1860) * 12)
+vec <- split(vecs, ceiling(seq_along(vecs) / 12))
+names(vec) <- 1861:2005
+dname <- "airrww"
+selected.years <- as.character(seq(1900, 2000, 10))
+
+isimip.hist <- mclapply(files, function(x)
+  open_nc_files(file = x, dname = dname, selected.years = selected.years, 
+                vec = vec), mc.cores = detectCores() * 0.75)
+
+names.isimip.hist <- c("PCR-GLOBWB", "MPI-HM", "LPJmL", "H08")
+names(isimip.hist) <- names.isimip.hist
+
+for(i in names(isimip.hist)) {
+  names(isimip.hist[[i]]) <- selected.years
+}  
+
+# Create list with the columns selected
+
+dt.tmp <- lapply(paste("AEI_", seq(1900, 2000, 10), sep = ""), function(x)
+  gmia.hist[, .SD, .SDcols = c("Country", "Code", "Continent", x)])
+names(dt.tmp) <- selected.years
+
+
+out <- lapply(names(isimip.hist), function(x)
+  lapply(selected.years, function(y)
+    isimip.hist[[x]][[y]][, merge(.SD, dt.tmp[[y]], by = c("Country", "Code", "Continent"), 
+                              all.y = TRUE)])) %>%
+  lapply(., function(x) lapply(x, function(y) setnames(y, 5, "AEI") %>%
+                                 na.omit()))
+
+names(out) <- c("PCR-GLOBWB", "MPI-HM", "LPJmL", "H08")
+
+for(i in names(out)) {
+  names(out[[i]]) <- selected.years
+}     
+```
+
+```{r plot_long_term_trends, cache=TRUE, dependson="long_term_trends", fig.width=5.4, fig.height=4.3}
+
+# PLOT GHM WATER WITHDRAWALS THROUGH TIME (1900-1960) ------------------------------
+
+tmp <- lapply(out, function(x) rbindlist(x, idcol = "Year")) %>%
+  na.omit()
+
+# Plot
+gg <- list()
+for(i in 1:length(tmp)) {
+  gg[[i]] <- ggplot(tmp[[i]], aes(AEI, Water.Withdrawn, 
+                                  color = Continent)) +
+    geom_point(size = 0.4) +
+    scale_x_log10(breaks = trans_breaks("log10", function(x) 10 ^ (2 * x)),
+                  labels = trans_format("log10", math_format(10 ^ .x))) +
+    scale_y_log10(breaks = trans_breaks("log10", function(x) 10 ^ (2 * x)),
+                  labels = trans_format("log10", math_format(10 ^ .x))) +
+    labs(x = "Irrigated area (ha)", 
+         y = expression(paste("Water withdrawal ", " ", "(", 10^9, m^3/year, "", ")"))) +
+    facet_wrap(~Year, ncol = 5) +
+    theme_AP() +
+    theme(legend.position = "top", 
+          strip.background = element_rect(fill = "white")) +
+    ggtitle(names(tmp[i]))
+}
+
+gg
+```
+
+## Plot trend between irrigated areas and irrigation water withdrawals
+
+```{r data_water, cache=TRUE, dependson="historic_fao_gmia"}
+
+# READ IN DATASETS ON IRRIGATION WATER WITHDRAWAL AND MEIER DATASET --------------
 
 # Define vector to reorder columns
 cols_order <- c("Continent", "Country", "Code", "Water.Dataset", "Water.Withdrawn")
@@ -216,6 +436,7 @@ table4.tmp <- fread("table_4.csv", skip = 3, nrows = 167) %>%
 table4.dt <- country_code(table4.tmp[Year %in% 1999:2012])[
   , Water.Dataset:= "Aquastat"][
     , Year:= NULL] %>%
+  country_code(.) %>%
   setcolorder(., cols_order)
 
 # Liu et al. dataset ----------------------------
@@ -224,61 +445,25 @@ liu.dt <- fread("liu.csv")[, .(country, irr)] %>%
   setnames(., c("country", "irr"), c("Country", "Water.Withdrawn")) %>%
   country_code(.) %>%
   .[, Water.Dataset:= "Liu et al. 2016"] %>%
-  setcolorder(., cols_order)
-  
-
-# Huang et al datasets --------------------------
-names_nc_files <- c("withd_irr_lpjml.nc", "withd_irr_pcrglobwb.nc", 
-                    "withd_irr_h08.nc", "withd_irr_watergap.nc")
-out.nc <- mclapply(names_nc_files, function(x) get_nc_data(x), mc.cores = detectCores() * 0.75)
-names(out.nc) <- c("LPJmL", "PCR-GLOBWB", "H08", "WaterGap")
-out.final <- rbindlist(out.nc, idcol = "Water.Dataset")
-
-# ISIMIP datasets --------------------------------
-files <- list("dbh_wfdei_nobc_hist_varsoc_co2_airrww_global_monthly_1971_2010.nc", 
-              "mpi-hm_miroc5_ewembi_picontrol_histsoc_co2_airrww_global_monthly_1861_2005.nc", 
-              "vic_wfdei_nobc_hist_pressoc_co2_airrww_global_monthly_1971_2010.nc")
-
-dname <- "airrww"
-
-isimip.dt <- mclapply(files, function(x) open_nc_files(file = x, dname = dname), 
-                      mc.cores = detectCores() * 0.75)
-
-names(isimip.dt) <- c("DBHM", "MPI-HM", "VIC")
-
-# ADD CLM45
-CLM45 <- open_nc_files(file = "clm45_gfdl-esm2m_ewembi_historical_2005soc_co2_pirrww_global_monthly_1861_2005.nc", 
-                       dname = "pirrww")
-
-CLM45 <- CLM45[, Water.Dataset:= "CLM45"] %>%
-  setcolorder(., c("Water.Dataset", "countries", "Water.Withdrawn"))
-
-isimip.final <- rbindlist(isimip.dt, idcol = "Water.Dataset") %>%
-  rbind(CLM45) %>%
-  setnames(., "countries","Country") %>%
   country_code(.) %>%
-  na.omit()
+  setcolorder(., cols_order) 
 
-GHM.dt <- rbind(out.final, isimip.final) %>%
-  .[order(Country)]
+# READ IN FAO-GMIA BY MEIER  ------------------------------------------------------
 
-# The value for Gabon by MPI-HM is a clear outlier
-GHM.dt[Country == "Gabon"]
+meier.dt <- fread("meier.csv") %>%
+  setnames(., "Codes", "Code") %>%
+  na.omit() %>%
+  .[, .(Country, Continent, Code, `FAO-GMIA`)] %>%
+  setnames(., "FAO-GMIA", "Irrigated.Area")
 
-# So what we do is to give it a NA
-GHM.dt <- GHM.dt[, Water.Withdrawn:= ifelse(Country == "Gabon" & 
-                                              Water.Dataset == "MPI-HM", NA, 
-                                            Water.Withdrawn)] %>%
-  setcolorder(., cols_order)
-```
+# MERGE WITH MEIER ET AL. FAO-GMIA -----------------------------------------------
 
-Next we row-bind the GM and FAO-based datasets, producing the dataset `water.dt`. We then check whether there are duplicated countries resulting from a bad conversion of longitude/latitude to country names. We found that `Cyprus` and `Palestinian Territories` had more than 10 data points, meaning that there were some duplicated values. We computed the mean irrigation water withdrawal for these countries in each water dataset.
-
-```{r final_water_dataset, cache=TRUE, dependson=c("water_with_dataset" ,"arrange_total_countries")}
-
-# CREATE THE FINAL IRRIGATION WATER WITHDRAWAL DATASET --------------------------
-
-water.dt <- rbind(liu.dt, table4.dt, GHM.dt)
+water.dt <- lapply(all.ghm, function(x) rbindlist(x, idcol = "Year")) %>%
+  rbindlist(., idcol = "Water.Dataset") %>%
+  .[Year == 2005] %>%
+  .[, Year:= NULL] %>%
+  setcolorder(., cols_order) %>%
+  rbind(., table4.dt, liu.dt)
 
 # Check if there are duplicated countries
 water.dt[, .N, .(Country)][N > 10][, Country]
@@ -289,31 +474,9 @@ water.dt <- water.dt[, .(Water.Withdrawn = mean(Water.Withdrawn)),
 
 # And check again
 water.dt[, .N, .(Country)][N > 10][, Country]
-```
-
-## Load FAO-GMIA dataset
-Here we read in the irrigated areas reported by FAO-GMIA. We use the data compiled by @Meier2018, and produce the `meier.dt` dataset.
-```{r area_dataset, cache=TRUE}
-
-# READ IN IRRIGATED AREA DATASET ------------------------------------------------
-
-meier.dt <- fread("meier.csv") %>%
-  setnames(., "Codes", "Code") %>%
-  na.omit() %>%
-  .[, .(Country, Continent, Code, `FAO-GMIA`)] %>%
-  setnames(., "FAO-GMIA", "Irrigated.Area")
-```
-
-## Plot FAO-GMIA against irrigation water withdrawal
-
-In order to obtain the final dataset for the computations, we merge `water.dt` with `meier.dt`. We forced `water.dt` to have the same countries as `meier.dt` (186), and removed Oceanian countries from the simulations due to their small sample size. Finally, we show which countries have missing irrigation water withdrawal values due to the pairing of the datasets, and print the list of countries that show at least one missing value.
-
-```{r merge_with_area, cache=TRUE, dependson=c("area_dataset", "water_with_dataset", "final_water_dataset")}
-
-# MERGE DATASETS ----------------------------------------------------------------
 
 full.dt <- water.dt[, merge(.SD, meier.dt, by = c("Country", "Code", "Continent"), 
-                            all.y = TRUE), Water.Dataset] %>%
+                       all.y = TRUE), Water.Dataset] %>%
   .[!Continent == "Oceania"]
 
 # Show countries with missing values in Water Withdrawal
@@ -326,11 +489,9 @@ full.dt[is.na(Water.Withdrawn), ] %>%
   .[, unique(Country)]
 ```
 
-Now we plot irrigated areas against irrigation water withdrawals. 
+```{r plot_merged, cache=TRUE, dependson=c("data_water"), fig.height=3, fig.width=5.4, fig.cap="Scatterplots of irrigated areas reported by FAO-GMIA against irrigation water withdrawals. Each dot is a country."}
 
-```{r plot_merged, cache=TRUE, dependson="merge_with_area", dev="tikz", fig.height=3, fig.width=5.4, fig.cap="Scatterplots of irrigated areas reported by FAO-GMIA against irrigation water withdrawals. Each dot is a country."}
-
-# PLOT --------------------------------------------------------------------------
+# PLOT ---------------------------------------------------------------------------
 
 full.dt %>%
   na.omit() %>%
@@ -349,15 +510,13 @@ full.dt %>%
         strip.background = element_rect(fill = "white")) 
 ```
 
-## Check influence of other parameters
+# The influence of other parameters
 
-In this section we prove that other parameters used by GM to estimate irrigation water withdrawals, shuch as total evapotranspiration, potential evaporation and irrigation efficiency, are computationally irrelevant. The data on potential evaporation and total evapotranspiration is retrieved from ISIMIP, and the data for irrigation efficiency from @Rohwer2007.
+## Potential evapotranspiration
 
-After normalizing irrigation water withdrawal values by irrigated areas, we create different functions to load the data and create plots of (irrigation water withdrawals / irrigated areas) against each of these parameters.
+```{r plot_divided, cache=TRUE, dependson="data_water"}
 
-```{r plot_divided,cache=TRUE, dependson="merge_with_area", dev="tikz", fig.height=6, fig.width=5.8}
-
-# CHECK THE INFLUENCE OF POTENTIAL EVAPOTRANSPIRATION ---------------------------
+# CHECK THE INFLUENCE OF POTENTIAL EVAPOTRANSPIRATION ----------------------------
 
 full.dt <- full.dt[, div:= Water.Withdrawn / Irrigated.Area] 
 
@@ -417,7 +576,7 @@ gm_list <- c("WaterGap", "PCR-GLOBWB", "MPI-HM", "LPJmL", "H08", "VIC", "DBHM")
 names(totevap.dt) <- gm_list
 ```
 
-```{r plot_evapotranspiration, cache=TRUE, dependson="plot_divided", dev="tikz", fig.height=3, fig.width=5.4}
+```{r plot_evapotranspiration, cache=TRUE, dependson="plot_divided", fig.height=3, fig.width=5.4}
 
 # PLOT EVAPOTRANSPIRATION -------------------------------------------------------
 
@@ -437,6 +596,8 @@ rbindlist(totevap.dt, idcol = "Water.Dataset") %>%
   theme(legend.position = "top", 
         strip.background = element_rect(fill = "white")) 
 ```
+
+## Potential evaporation
 
 ```{r check_potevap, cache=TRUE, dependson = "plot_divided"}
 
@@ -458,7 +619,7 @@ gm_list <- c("WaterGap", "H08", "PCR-GLOBWB", "MPI-HM", "LPJmL")
 names(potevap.dt) <- gm_list
 ```
 
-```{r plot_potevap, cache=TRUE, dependson="check_potevap", dev="tikz", fig.height=2, fig.width=5.4}
+```{r plot_potevap, cache=TRUE, dependson="check_potevap", fig.height=2, fig.width=5.4}
 
 # PLOT POTENTIAL EVAPORATION ----------------------------------------------------
 
@@ -479,7 +640,9 @@ rbindlist(potevap.dt, idcol = "Water.Dataset") %>%
         strip.background = element_rect(fill = "white")) 
 ```
 
-```{r influence_efficiency, cache=TRUE, dependson=c("plot_divided", "merge_with_area"), dev="tikz", fig.height=2.3, fig.width=5.4}
+## Water efficiency
+
+```{r influence_efficiency, cache=TRUE, dependson=c("plot_divided", "data_water"), fig.height=2.3, fig.width=5.4}
 
 # CHECK INFLUENCE OF WATER EFFICIENCY --------------------------------------------
 
@@ -507,9 +670,7 @@ merge(full.dt[Water.Dataset %in% c("WaterGap", "H08", "LPJmL",
 
 # Creation of the final dataset
 
-In order to set the ground for the computations, which will be launched hereafter, we now log-transform both irrigation water withdrawals and irrigated area values. Afterwards, we regress irrigated areas against irrigation water withdrawals for each continent and water dataset, and show three diagnostic plots that will help assessing the apropriateness of the methodological approach. Finally, we export all files created to `.csv`.
-
-```{r log10, cache=TRUE, dependson="merge_with_area"}
+```{r log10, cache=TRUE, dependson="data_water"}
 
 # TRANSFORM DATASET -------------------------------------------------------------
 
@@ -521,7 +682,7 @@ full.dt <- full.dt[, (cols):= lapply(.SD, log10), .SDcols = (cols)]
 full.dt <- full.dt[, Country:= str_replace(Country, "\\&", "and")]
 ```
 
-```{r diagnostic, cache=TRUE, dependson=c("merge_with_area", "log10"), dev="tikz", fig.width=4.5, fig.height=7}
+```{r diagnostic, cache=TRUE, dependson=c("data_water", "log10"), fig.width=4.5, fig.height=7}
 
 # REGRESSION DIAGNOSTICS --------------------------------------------------------
 
@@ -599,9 +760,7 @@ fwrite(water.dt, "water.dt.csv")
 
 # Missing values
 
-Here we show the fraction of missing values in each GHM and FAO-based dataset. 
-
-```{r plot_missing2, cache=TRUE, dependson="log10", fig.height=3, fig.width=4.5, dev="tikz", fig.cap="Proportion of missing values in irrigation water withdrawal per dataset."}
+```{r plot_missing2, cache=TRUE, dependson="log10", fig.height=3, fig.width=4.5, fig.cap="Proportion of missing values in irrigation water withdrawal per dataset."}
 
 # PLOT PERCENTAGE OF MISSING 2 --------------------------------------------------
 
@@ -619,7 +778,7 @@ full.dt[, sum(is.na(.SD) == TRUE) / .N,
   theme(legend.position = "top")
 ```
 
-Now we impute the missing values for each continent and irrigation water withdrawal dataset. Given the linear trend between water withdrawals and irrigated areas shown in Figure 1, we select three possible regression-based multiple imputation methods: bayesian, without model error and bootstrapped. For each method and missing value, we compute 40 different iterations to account for the uncertainty in the true missing value. The result is the dataset `full.imput`, which only contains complete cases.
+## Imputation of missing values
 
 ```{r missing, cache=TRUE, dependson="log10", message=FALSE, warning=FALSE}
 
@@ -627,51 +786,47 @@ Now we impute the missing values for each continent and irrigation water withdra
 
 # Substitute Inf values for NA
 for (j in 1:ncol(full.dt)) set(full.dt, which(is.infinite(full.dt[[j]])), j, NA)
-  
+
 full.dt[, lapply(.SD, function(x) sum(is.infinite(x)))] # Check
-  
+
 # Imputation settings
 m.iterations <- 40
 imputation.methods <- c("norm.boot", "norm", "norm.nob")
 
-# remove div columns to better prepare dataset for mice
-full.dt <- full.dt[, div:= NULL]
-  
 # Run
+full.dt <- full.dt[, div:= NULL]
+
 imput <- full.dt[, .(Group = lapply(imputation.methods, function(x) 
   mice(.SD, m = m.iterations, maxit = m.iterations, method = x, seed = 500, 
        print = FALSE))), 
   cols_group]
-  
+
 imput <- imput[, Imputation.Method:= rep(imputation.methods, .N /
                                            length(imputation.methods))]
-  
+
 # Extract iterations
 imput <- imput[, Datasets:= lapply(Group, function(x) 
   lapply(1:m.iterations, function(y) data.table(mice::complete(x, y))))] %>%
   .[, Data:= lapply(Datasets, function(x) rbindlist(x, idcol = "Iteration"))]
-  
+
 # Vector to loop onto
 columns_add <- c("Country", "Iteration", "Irrigated.Area", "Water.Withdrawn")
 tmp <- as.list(columns_add)
 names(tmp) <- columns_add
-  
+
 # Extract columns
 for(i in names(tmp)) {
   imput <- imput[, tmp[[i]]:= lapply(.SD, function(x) 
     lapply(x, function(y) y[, ..i])), .SDcols = "Data"]
 }
-  
+
 # Unlist
 full.imput <- imput[, lapply(.SD, unlist), 
                     .SDcols = columns_add, 
                     .(Continent,Water.Dataset, Imputation.Method)]
 ```
 
-# Regressions
-The following code snippet computes all possible regressions for all combinations of irrigation water withdrawals datasets (10), imputation methods (3), iterations (40) and regression method (robust/non-robust, 2). These four uncertain factors will be the triggers that we will use in our model to select the $r^2$ value (see below). In total, we have 10 * 3 * 40 * 2 = 2400 possible regressions and $r^2$ values for each continent. The result is the `regressions` dataset.
-
-Then we extract `r.squared` values and other statistics from the `regressions` dataset, and create the `results` dataset.
+# Compute linear regressions
 
 ```{r conduct_lm, cache=TRUE, dependson=c("missing_values", "missing")}
 
@@ -723,7 +878,7 @@ all.results <- rbind(results[, ..cols_extract],
                      results.robust[, ..cols_extract])
 ```
 
-```{r obtain_beta, cache=TRUE, dependson="conduct_lm", dev="tikz", fig.width=5, fig.height=6.5}
+```{r obtain_beta, cache=TRUE, dependson="conduct_lm", fig.width=5, fig.height=6.5}
 
 # EXTRACT SLOPE (BETA) -----------------------------------------------------------
 
@@ -761,11 +916,11 @@ rbind(slope, slope.robust) %>%
         strip.background = element_rect(fill = "white"))
 ```
 
-The regressions just conducted allow to obtain the coefficients to predict irrigation water withdrawals from irrigated areas only. To check the efficiency of this approach, we predict irrigation water withdrawal values from the irrigated areas reported by FAO-GMIA [@Siebert2013], and by five other irrigated area products: the IWMI-GIAM [@Thenkabail2009], the GRIPC [@Salmon2015], the Meier dataset [@Meier2018], Aquastat [@FAO2016b] and FAOSTAT [@FAO2017a]. We compare the resulting estimates with the irrigation water withdrawal estimates outputted by GHM and with those reported in FAO-based datasets.
+# Predictions
 
-Once the predictions are done, we create the `water.quantiles` dataset, which reports the min, median, max and several quantiles to describe the uncertainty in irrigation water withdrawals at the country level.
+## Compare our approach with estimates by GHM
 
-```{r predict, cache=TRUE, dependson="conduct_lm"}
+```{r predict, cache=TRUE, dependson=c("conduct_lm", "data_water")}
 
 # PREDICT WATER WITHDRAWALS ----------------------------------------------------
 
@@ -843,9 +998,7 @@ water.quantiles <- rbind(water.predicted, water.predicted.rob) %>%
 water.quantiles <- water.quantiles[, Country:= str_replace(Country, "\\&", "and")]
 ```
 
-And now we create a plot to show how our estimates compare with the results yielded by GHM and those reported in FAO-based datasets (Figures 3--6 below).
-
-```{r plot_predicted, cache=TRUE, dependson=c("predict", "conduct_lm", "final_water_dataset"), dev="tikz", fig.height=6.5, fig.width=5.7, fig.cap="Validation of our approach. The black dots and the error bars show the range of irrigation water withdrawal values predicted from irrigated areas only. The colored dots show the irrigation water withdrawal values outputted by Global Hydrological Models (DBHM, Ho8, LPJmL, MPI-HM, PCR-GLOBWB, WaterGap) and FAO-based datasets (Aquastat, Liu et al. 2016)."}
+```{r plot_predicted, cache=TRUE, dependson=c("predict", "conduct_lm", "data_water"), fig.height=6.5, fig.width=5.7, fig.cap="Validation of our approach. The black dots and the error bars show the range of irrigation water withdrawal values predicted from irrigated areas only. The colored dots show the irrigation water withdrawal values outputted by Global Hydrological Models (DBHM, Ho8, LPJmL, MPI-HM, PCR-GLOBWB, WaterGap) and FAO-based datasets (Aquastat, Liu et al. 2016)."}
 
 # PLOT PREDICTIONS AGAINST GHM AND FAO OUTPUTS ----------------------------------
 
@@ -890,7 +1043,7 @@ grid.arrange(arrangeGrob(all, bottom = grid::textGrob(
   label = expression(paste("Irrigation water withdrawal ", " ", "(", 10^9, m^3/year, "", ")")))))
 ```
 
-```{r check_estimates, cache=TRUE, dependson=c("predict", "plot_predicted"), dev="tikz", fig.height=3, fig.width=4}
+```{r check_estimates, cache=TRUE, dependson=c("predict", "plot_predicted"),fig.height=3, fig.width=4}
 
 # CHECK HOW MANY ESTIMATES FIT WITHIN THE REGRESSION BOUNDS ---------------------
 
@@ -927,7 +1080,7 @@ lapply(c(7, 10), function(x)
 lapply(c(0:3), function(x) prove[V1 == x])
 ```
 
-```{r all_together, cache=TRUE, dependson="check_estimates", dev="tikz", fig.height=2, fig.width=2.3}
+```{r all_together, cache=TRUE, dependson="check_estimates", fig.height=2, fig.width=2.3}
 
 # PLOT ALL ESTIMATES TOGETHER ---------------------------------------------------
 
@@ -940,8 +1093,7 @@ data.table(table(prove$V1)) %>%
   theme_AP()
 ```
 
-
-```{r check_gh_fao, cache=TRUE, dependson="check_estimates", dev="tikz", fig.height=5, fig.width=4.7}
+```{r check_gh_fao, cache=TRUE, dependson="check_estimates", fig.height=5, fig.width=4.7}
 
 # CHECK BIASED POINT ESTIMATES BY DATASET ---------------------------------------
 
@@ -959,12 +1111,108 @@ da[, .(N = sum(Water.Withdrawn < min | Water.Withdrawn > max),
   theme(legend.position = "top")
 ```
 
-# Lookup table
-Our model (see below) will run rowwise, for $i=1,2,...,N$ rows, and it will select an $r^2_i$ obtained given the conditions defined by three triggers: trigger $X_{1_i}$ will select an GHM or FAO-based product from where to retrieve $r^2$ values; $X_{2_i}$ the multiple imputation method used to fill missing values, and $X_{3_i}$ the specific iteration from the pool of 40 different iterations computed for each missing value.
+## Can future irrigation water withdrawals be estimated as a function of irrigated areas?
 
-In order to speed up these computations, we create a lookup table with all possible $r^2$ values given all possible combinations between Continent, $X_1$, $X_2$ and $X_3$ (`lookup`). We sort `lookup` by all these elements through the use of the `setkey` function, which increases the speed of binary search.
+```{r future_irrigation, cache=TRUE}
 
-We finally export all datasets to `.csv` files.
+# FUTURE IRRIGATION WATER WITHDRAWALS --------------------------------------------
+
+files <- list(
+  "pcr-globwb_miroc5_ewembi_rcp60_2005soc_co2_airrww_global_monthly_2006_2099.nc",
+  "pcr-globwb_miroc5_ewembi_rcp26_2005soc_co2_airrww_global_monthly_2006_2099.nc",
+  "lpjml_miroc5_ewembi_rcp60_2005soc_co2_airrww_global_monthly_2006_2099.nc",
+  "lpjml_miroc5_ewembi_rcp26_2005soc_co2_airrww_global_monthly_2006_2099.nc",
+  "lpjml_miroc5_ewembi_rcp60_rcp60soc_co2_airrww_global_monthly_2006_2099.nc",
+  "lpjml_miroc5_ewembi_rcp26_rcp26soc_co2_airrww_global_monthly_2006_2099.nc",
+  "h08_miroc5_ewembi_rcp60_2005soc_co2_airrww_global_monthly_2006_2099.nc",
+  "h08_miroc5_ewembi_rcp26_2005soc_co2_airrww_global_monthly_2006_2099.nc",
+  "h08_miroc5_ewembi_rcp60_rcp60soc_co2_airrww_global_monthly_2006_2099.nc",
+  "h08_miroc5_ewembi_rcp26_rcp26soc_co2_airrww_global_monthly_2006_2099.nc",
+  "mpi-hm_miroc5_ewembi_rcp60_2005soc_co2_airrww_global_monthly_2006_2099.nc",
+  "mpi-hm_miroc5_ewembi_rcp26_2005soc_co2_airrww_global_monthly_2006_2099.nc"
+)
+
+vecs <- 1:((2099 - 2005) * 12)
+vec <- split(vecs, ceiling(seq_along(vecs) / 12))
+names(vec) <- 2006:2099
+dname <- "airrww"
+selected.years <- as.character(seq(2030, 2050, 10))
+
+# Read in datasets
+isimip.future <- mclapply(
+  files, function(x)
+    open_nc_files(file = x, dname = dname, selected.years = selected.years, 
+                  vec = vec), mc.cores = detectCores() * 0.75
+)
+```
+
+```{r plot_future_irrigation, cache=TRUE, dependson="future_irrigation", fig.height=7, fig.width=5.7}
+
+# PLOT ---------------------------------------------------------------------------
+
+# Create vector to name the slots
+ghms <- c(c("PCR-GLOBWB", "PCR-GLOBWB"), rep(c("LPJmL", "H08"), each = 4), c("MPI-HM", "MPI-HM"))
+climate_scenario <- rep(c(60, 26), 6)
+climate2 <- c(rep(2005, 4), rep(c(60, 26, 2005, 2005), 2))
+names.isimip.future <- paste(paste(ghms, climate_scenario, sep = "/"), climate2, sep = ".")
+
+# Name the slots
+names(isimip.future) <- names.isimip.future
+
+for(i in names(isimip.future)) {
+  names(isimip.future[[i]]) <- selected.years
+}  
+
+# Arrange data
+isimip.future.dt <- lapply(isimip.future, function(x) rbindlist(x, idcol = "Year")) %>%
+  rbindlist(., idcol = "Model") %>%
+  .[!Continent == "Oceania"] %>%
+  separate(., "Model", c("Model", "Climate scenario"), "/") %>%
+  na.omit()
+
+Cont <- unique(isimip.future.dt$Continent)
+water.tmp <- isimip.future.dt[Country %in% data.table(water.quantiles)[, Country]]
+
+gg <- list()
+for(j in Cont) {
+  gg[[j]] <- water.quantiles[Continent == j] %>%
+    ggplot(., aes(reorder(Country, median), median)) +
+    geom_point() +
+    geom_point(data = water.tmp[Year == "2050" & Continent == j], 
+               aes(reorder(Country, Water.Withdrawn), Water.Withdrawn, 
+                   shape = `Climate scenario`, 
+                   color = Model)) +
+    geom_errorbar(aes(ymin = min, 
+                      ymax = max)) +
+    scale_y_log10(breaks = trans_breaks("log10", function(x) 10 ^ (2 * x)),
+                  labels = trans_format("log10", math_format(10 ^ .x))) +
+    scale_color_discrete(name = "Water dataset") +
+    labs(y = "", x = "") +
+    coord_flip() +
+    theme_AP() +
+    theme(legend.position = "none")
+}
+
+legend <- get_legend(gg[[1]] +
+                       theme(legend.position = "top", 
+                             legend.box = "vertical"))
+
+bottom1 <- plot_grid(gg[[1]] + theme(legend.position = "none"), 
+                     gg[[2]] + theme(legend.position = "none"), ncol = 2)
+all1 <- plot_grid(legend, bottom1, rel_heights = c(0.2, 1), ncol = 1)
+grid.arrange(arrangeGrob(all1, bottom = grid::textGrob(
+  label = expression(paste("Irrigation water withdrawal ", " ", "(", 10^9, m^3/year, "", ")")))))
+
+bottom2 <- plot_grid(gg[[3]] + theme(legend.position = "none"), 
+                     gg[[4]] + theme(legend.position = "none"), ncol = 2)
+all2 <- plot_grid(legend, bottom2, rel_heights = c(0.2, 1), ncol = 1)
+grid.arrange(arrangeGrob(all2, bottom = grid::textGrob(
+  label = expression(paste("Irrigation water withdrawal ", " ", "(", 10^9, m^3/year, "", ")")))))
+```
+
+# The model
+
+## Create lookup table
 
 ```{r lookup, cache=TRUE, dependson="conduct_lm"}
 
@@ -983,11 +1231,7 @@ fwrite(lookup, "lookup.csv")
 fwrite(water.quantiles, "water.quantiles.csv")
 ```
 
-# Run the model
-This section codes everything needed to run the simulations and conduct the uncertainty and sensitivity analysis.
-
-## Define settings
-Firstly, we define a vector with the name of the continents, a vector with the name of the triggers ($X_1,X_2,X_3$), the sample size of our base sample matrix ($2^{13}$) and the order up to which we will compute sensitivity indices (third-order in this case).
+## Sample matrix
 
 ```{r set_sample_matrix, cache=TRUE}
 
@@ -1004,11 +1248,6 @@ n <- 2 ^ 13
 # Define order
 order <- "third"
 ```
-
-## Sample matrix
-Now we create the sample matrix, where each row represents a sample point and each column a trigger. We use the function `sobol_matrices` of the `sensobol` package [@Puyk]. In this case, since we will compute first, second, third and total-order Sobol' indices using the @Jansen1999 estimators, we create an $\textbf{A}$, a $\textbf{B}$ matrix, and $k$ $\textbf{A}_{B} ^{(j)}$ matrices, where all columns come from $\textbf{A}$ except the $j$-th, which comes from $\textbf{B}$, for $k=3$ (the number of triggers). Overall, this leads to a total computational cost of $C=N(k+2)=2^{13}(3+2)=40960$ model runs per continent.
-
-The matrices created with the `sobol_matrices` function use Sobol' Quasi-Random Number sequences [@Sobol1967; @Sobol1976], which are uniformly distributed in $[0,1]$. We transform these sequences to their appropriate probability distributions in the next code snippet.
 
 ```{r sample_matrix, cache=TRUE, dependson="set_sample_matrix"}
 
@@ -1027,8 +1266,6 @@ names(sample.matrix) <- Continents
 # Name the columns
 sample.matrix <- lapply(sample.matrix, setnames, parameters)
 ```
-
-The code below defines the function `transform_sample_matrix`, which transforms the columns of the sample matrix into their appropriate distributions ([$X_1\sim\mathcal{DU}(1,8)$; $X_2\sim\mathcal{DU}(1,3)$; $X_3\sim\mathcal{DU}(1,40)$]). We link each discrete number in each distribution with a specific irrigation water withdrawal product, imputation method and iteration (Figure 7).
 
 ```{r add_diagram, echo=FALSE, fig.align="center", fig.cap="Tree diagram coding the discrete probability distributions of each trigger into each uncertainty level.", out.width = '100%'}
 
@@ -1074,9 +1311,7 @@ We then print out the sample matrix to allow the reader understand its organizat
 print(sample.matrix.dt)
 ```
 
-## The model
-
-The model is simply a one-line function that runs in the sample matrix as follows: for the $i$-th row, it creates a vector with all the conditions set by $X_{1_i}, X_{2_i}, X_{3_i}$, and uses this vector to extract from the lookup table the $r^2_i$ value according to these conditions.
+## Run the model
 
 ```{r define_model, cache=TRUE}
 
@@ -1085,9 +1320,7 @@ The model is simply a one-line function that runs in the sample matrix as follow
 model <- function(X) lookup[.(paste0(X[, 1:5], collapse = "_"))][, r.squared]
 ```
 
-And now we run the model. In order to speed up the simulations, we rely on parallel computing. Once the computation is completed, we create the sample matrix to be used in the sensitivity analysis (`sample.matrix.dt`), the sample matrix to be used in the uncertainty analysis (`AB.dt`), and export the resulting data tables to `.csv.` files.
-
-```{r run_model, cache=TRUE, dependson=c("define_model", "set_boot", "lookup", "transform_sample_matrix", "sample_matrix_gmia")}
+```{r run_model, cache=TRUE, dependson=c("define_model", "set_boot", "lookup", "transform_sample_matrix", "sample_matrix")}
 
 # RUN THE MODEL-------------------------------------------------------------------
 
@@ -1112,7 +1345,7 @@ stopCluster(cl)
 
 ```{r arrange_output, cache=TRUE, dependson=c("run_model", "transform_sample_matrix")}
 
-# ARRANGE MODEL OUTPUT -----------------------------------------------------------
+# ARRANGE MODEL OUTPUT ------------------------------------------------------------
 
 sample.matrix.dt <- cbind(sample.matrix.dt, r.squared) 
 
@@ -1125,7 +1358,6 @@ fwrite(AB.dt, "AB.dt.csv")
 ```
 
 # Uncertainty analysis
-In this section we present the results of the uncertainty analysis through a quantile table and different plots. 
 
 ```{r quantiles, cache=TRUE, dependson="arrange_output"}
 
@@ -1143,7 +1375,7 @@ AB.dt[, .(q0.025 = quantile(r.squared, 0.025),
           median = median(r.squared)), Continent]
 ```
 
-```{r plot_uncertainty, cache=TRUE, dependson="arrange_output", dev="tikz", fig.height=5, fig.width=2.5, fig.cap="Uncertainty in the empirical distribution of $r^2$."}
+```{r plot_uncertainty, cache=TRUE, dependson="arrange_output", fig.height=5, fig.width=2.5, fig.cap="Uncertainty in the empirical distribution of $r^2$."}
 
 # PLOT UNCERTAINTY --------------------------------------------------------------
 
@@ -1152,7 +1384,7 @@ unc.plot <- ggplot(AB.dt, aes(r.squared)) +
       geom_histogram(color = "black", fill = "white") + 
       theme_AP() +
       labs(x = expression(italic(r) ^ 2), 
-           y = "Density") +
+           y = "Count") +
       scale_y_continuous(breaks = pretty_breaks(n = 2)) +
       scale_x_continuous(breaks = pretty_breaks(n = 3)) +
       facet_wrap(~Continent, ncol = 1) +
@@ -1188,7 +1420,7 @@ unc.GHM <- AB.dt %>%
 legend <- get_legend(unc.GHM + theme(legend.position = "top"))
 ```
 
-```{r merge_plots, cache=TRUE, dependson=c("plot_uncertainty", "plot_uncertainty_GHM", "run_model"), fig.height=4, fig.width=5.2, dev="tikz"}
+```{r merge_plots, cache=TRUE, dependson=c("plot_uncertainty", "plot_uncertainty_GHM", "run_model"), fig.height=4, fig.width=5.2}
 
 # MERGE PLOTS -------------------------------------------------------------------
 
@@ -1197,8 +1429,7 @@ bottom <- plot_grid(unc.plot, unc.GHM, ncol = 2,
 all <- plot_grid(legend, bottom, ncol = 1, rel_heights = c(0.1, 1))
 ```
 
-```{r cumulative_r2, cache=TRUE, dependson="arrange_output", dev = "tikz", fig.height=2.2, fig.width=3.3, fig.cap="Cumulative empirical distribution for $r^2$."}
-
+```{r cumulative_r2, cache=TRUE, dependson="arrange_output", fig.height=2.2, fig.width=3.3, fig.cap="Cumulative empirical distribution for $r^2$."}
 
 # PLOT CUMULATIVE EMPIRICAL DISTRIBUTION FOR R2 -----------------------------------
 
@@ -1211,9 +1442,8 @@ ggplot(AB.dt, aes(r.squared, colour = Continent)) +
 ```
 
 # Sensitivity analysis
-And in this last section, we conduct the sensitivity analysis. We first plot the triggers against $r^2$ values, which allows to map back the model output into each of the triggers' levels. The resulting plot is Figure 10.
 
-```{r scatterplots, cache=TRUE, dependson="arrange_output", fig.height=7, fig.width=5.3, fig.cap="Scatterplots of $r^2$ against the triggers' levels."}
+```{r scatterplots, cache=TRUE, dependson="arrange_output", fig.height=7, fig.width=5.3, fig.cap="Scatterplots of $r^2$ against the triggers' levels.", dev="pdf"}
 
 # PLOT SCATTERPLOTS OF PARAMETERS VS MODEL OUTPUT ---------------------------------
 
@@ -1237,14 +1467,12 @@ ggplot(scatter.dt, aes(r.squared, value)) +
         legend.position = "top")
 ```
 
-We finally compute the Sobol' indices using the `sobol_indices` function of the sensobol package [@Puyk], and bootstrap the results 1000 times. We also plot first, second, third and total-order indices in different plots, and export the results.
-
 ```{r sensitivity, cache=TRUE, dependson=c("arrange_output", "set_sample_matrix")}
 
 # SENSITIVITY ANALYSIS ----------------------------------------------------------
 
 # Number of bootstrap replicas
-R <- 1000
+R <- 10^3
 
 parameters.recoded <- c("$X_1$", "$X_2$", "$X_3$", "$X_4$")
 
@@ -1257,15 +1485,14 @@ indices <- sample.matrix.dt[, sobol_indices(Y = r.squared,
                                             boot = TRUE,
                                             parallel = "multicore", 
                                             ncpus = n_cores, 
-                                            order = order), 
+                                            order = order)$results, 
                             Continent]
 ```
 
 ```{r print_sensitivity, cache=TRUE, dependson="sensitivity"}
 
-# PRINT AND EXPORT SENSITIVITY INDICES --------------------------------------------
+# EXPORT SENSITIVITY INDICES -----------------------------------------------------
 
-print(indices[sensitivity %in% c("Si", "Ti")])
 fwrite(indices, "indices.csv")
 ```
 
@@ -1336,13 +1563,16 @@ indices[sensitivity == "Sij" | sensitivity == "Sijk"] %>%
   theme_AP()
 ```
 
-\clearpage
+# Irrigated areas vs irrigation water withdrawals at different scales
 
-# Australian irrigated schemes
+## Australia (scheme level), USA (State level) and Colorado (County level)
 
 ```{r australia.dt, cache=TRUE}
 
-# RETRIEVE DATA FROM AUSTRALIAN IRRIGATION SCHEMES --------------------------------
+# RETRIEVE DATA FROM DIFFERENT SCALES ---------------------------------------------
+
+# Australia irrigation schemes -----------------------------------------
+
 australia.scheme <- fread("australia_scheme.csv")
 
 # Filter out NA and rows with 0
@@ -1350,29 +1580,69 @@ australia.dt <- australia.scheme[, lapply(.SD, function(x)
   ifelse(x == 0, NA, x))] %>%
   na.omit() %>%
   .[, Year:= factor(Year, levels = c("97.98", "2002.2003"))] %>%
-  .[, Year:= gsub("\\.", "-", Year)]
+  .[, Year:= gsub("\\.", "-", Year)] %>%
+  .[, Scale:= "Australian \n irrigation systems"]
+
+# USA level ------------------------------------------------------------
+
+# Irrigated area is in thousand acres
+# Water withdrawals in thousand acres feet
+
+# To convert from acre feet to cubic meters, multiply IWW by 1233.48.
+# To convert from acre to ha, divide the area value by 2.471.
+
+col_transf <- c("Irrigated.Area", "Water.Withdrawal")
+
+solley.dt <- fread("solley.dt.csv") %>%
+  .[, Scale:= "USA states"] # state level
+
+colorado.dt <- fread("colorado_data.csv") # colorado
+colorado.dt <- colorado.dt[, `:=`(Irrigated.Area = Flood + Sprinkler + Micro, 
+                                  Water.Withdrawal = Groundwater + Surface.water)] %>%
+  .[, .SD, .SDcols = (col_transf)] %>%
+  .[, Scale:= "Colorado counties"]
+
+# Merge both data sets
+usa.dt <- rbind(solley.dt, colorado.dt) %>%
+  .[, Irrigated.Area:= (Irrigated.Area * 1000) / 2.471] %>%
+  .[, Water.Withdrawal:= Water.Withdrawal * 1000 * 1233.48]
 ```
 
-```{r plot_australian, cache=TRUE, dependson=australia.dt, dev="tikz", fig.height=2, fig.width=4}
+```{r plot_australian, cache=TRUE, dependson=australia.dt, fig.height=2, fig.width=4}
 
 # PLOT SCATTERPLOT ---------------------------------------------------------------
-a <- ggplot(australia.dt, aes(Irrigated.Area, Water.Withdrawal)) +
+
+scatter_usa <- ggplot(usa.dt, aes(Irrigated.Area, Water.Withdrawal)) +
   geom_point(size = 0.6) +
   scale_x_log10(labels = trans_format("log10", math_format(10 ^ .x))) +
   scale_y_log10(labels = trans_format("log10", math_format(10 ^ .x))) +
-  facet_grid(~Year) +
+  labs(x = "Irrigated area (ha)", 
+       y = "Irrigation water \n Withdrawals (m$^3$)") +
+  facet_wrap(~Scale) +
+  theme_AP() +
+  theme(strip.background = element_rect(fill = "white"))
+
+scatter_australia <- ggplot(australia.dt, aes(Irrigated.Area, Water.Withdrawal)) +
+  geom_point(size = 0.6) +
+  scale_x_log10(labels = trans_format("log10", math_format(10 ^ .x))) +
+  scale_y_log10(labels = trans_format("log10", math_format(10 ^ .x))) +
+  facet_grid(Scale~Year) +
   labs(x = "Irrigated area (ha)", 
        y = "Irrigation deliveries \n (ML/year)") +
   theme_AP() +
   theme(strip.background = element_rect(fill = "white")) 
-a
+
+all_scatters <- plot_grid(scatter_australia, scatter_usa, ncol = 2)
+all_scatters
 ```
 
-```{r australian_regressions, cache=TRUE, dependson="australia.dt", dev="tikz", fig.height=2, fig.width=3}
+```{r australian_regressions, cache=TRUE, dependson="australia.dt", fig.height=2, fig.width=3}
 
 # COMPUTE REGRESSIONS AND BOOTSTRAP ----------------------------------------------
-col_transf <- c("Irrigated.Area", "Water.Withdrawal")
-australia.dt[, (col_transf):= lapply(.SD, log10), .SDcols = col_transf]
+
+# AUSTRALIA IRRIGATION SYSTEMS -----------------------------------
+
+australia.dt <- australia.dt[, (col_transf):= lapply(.SD, log10), .SDcols = col_transf]
 
 australia.regressions <- australia.dt %>%
   group_by(Year) %>%
@@ -1382,97 +1652,135 @@ australia.regressions <- australia.dt %>%
          results = map(fit, glance), 
          residuals = map(fit, augment))
 
-# Retrieve results
-australia.results <- australia.regressions  %>%
-  dplyr::select(Year, results) %>%
-  unnest(results) %>%
-  data.table() 
-
-# Retrieve residuals
-australia.residuals <- australia.regressions  %>%
-  dplyr::select(Year, residuals) %>%
-  unnest(residuals) %>%
-  data.table() 
-
 # Bootstrap
 foo <- boot(australia.dt, function(data,indices)
   summary(lm(Water.Withdrawal ~ Irrigated.Area,
              data[indices, ] ))$r.squared, R = 5000)
 
-ci_plot <- boot.ci(foo, type = "all") # Confidence intervals
-ci_plot
+# Confidence intervals
+ci_plot <- boot.ci(foo, type = "all") 
 
-b <- data.table(foo$t) %>%
-  ggplot(., aes(V1)) +
-  geom_histogram(color = "black", fill = "white") +
-  geom_vline(xintercept = c(ci_plot$bca[[4]], ci_plot$bca[[5]]), color = "blue") +
-  labs(x = "$r^2$", 
-       y = "Count") +
-  scale_x_continuous(breaks = pretty_breaks(n = 3)) +
-  theme_AP()
+# USA LEVEL (COLORADO COUNTY AND COUNTY LEVEL) -------------------
 
-b
-```
+usa.dt.lm <- usa.dt[, (col_transf):= lapply(.SD, log10), .SDcols = col_transf] %>%
+  NaRV.omit() 
 
-```{r plot_all_australia, cache=TRUE, dependson=c("australian_regressions", "plot_australian"), dev="tikz", fig.height=2, fig.width=5.5}
+usa.regressions <- usa.dt.lm %>%
+  group_by(Scale) %>%
+  nest() %>%
+  mutate(fit = map(.x = data, .f = ~lm(Water.Withdrawal~ Irrigated.Area, 
+                                       data = .)), 
+         results = map(fit, glance), 
+         residuals = map(fit, augment))
 
-# PLOT ALL AUSTRALIAN ------------------------------------------------------------
-plot_grid(a, b, labels ="auto", ncol = 2, align = "hv", rel_widths = c(1, 0.65))
-```
+# Bootstrap
+usa.loop <- c("USA states", "Colorado counties")
+foo.usa <- lapply(usa.loop, function(x)
+  boot(usa.dt.lm[Scale == x], function(data,indices)
+    summary(lm(Water.Withdrawal ~ Irrigated.Area,
+               data[indices, ] ))$r.squared, R = 5000))
 
-```{r boot_beta, cache=TRUE, dependson=c("australia.dt", "australian_regressions"), dev="tikz", fig.height=2, fig.width=2.5}
-
-# BOOTSTRAP BETA AT THE SCHEME LEVEL ---------------------------------------------
-
-foo.beta <- boot(australia.dt, function(data,indices)
-  coef(lm(Water.Withdrawal ~ Irrigated.Area,
-             data[indices, ]))[[2]], R = 5000)
+names(foo.usa) <- usa.loop
 
 # Confidence intervals
-ci_plot <- boot.ci(foo.beta, type = "all") 
+ci_plot2 <- lapply(foo.usa, function(x) boot.ci(x, type = "all"))
 
-# Plot
-data.table(foo.beta$t) %>%
-  ggplot(., aes(V1)) +
-  geom_histogram(color = "black", fill = "white") +
-  geom_vline(xintercept = c(ci_plot$bca[[4]], ci_plot$bca[[5]]), color = "blue") +
-  geom_vline(xintercept = 1, lty = 2) +
-  labs(x = "$\\beta$", 
-       y = "Count") +
-  scale_x_continuous(breaks = pretty_breaks(n = 3)) +
-  theme_AP()
+ci.dt <- data.table(Scale = c("USA states", "Colorado counties", "Australian irrigation systems"), 
+                    low.ci = c(ci_plot2$`USA states`$bca[[4]], 
+                               ci_plot2$`Colorado counties`$bca[[4]], 
+                               ci_plot$bca[[4]]), 
+                    high.ci = c(ci_plot2$`USA states`$bca[[5]], 
+                                ci_plot2$`Colorado counties`$bca[[5]], 
+                                ci_plot$bca[[5]])) %>%
+  melt(., measure.vars = c("low.ci", "high.ci"))
 ```
 
-```{r australian_diagnostics, cache=TRUE, dependson="australian_regressions", dev="tikz", fig.height=5, fig.width=3.5}
+```{r plot_all_australia, cache=TRUE, dependson=c("australian_regressions", "plot_australian"), fig.height=4.5, fig.width=5.6}
+
+# PLOT ALL -----------------------------------------------------------------------
+
+tmp <- lapply(usa.loop, function(x) foo.usa[[x]]$t) %>%
+  lapply(., data.table)
+
+names(tmp) <- usa.loop
+
+all.histo <- rbindlist(tmp, idcol = "Scale") %>%
+  rbind(., data.table(foo$t) %>%
+          .[, Scale:= "Australian irrigation systems"] %>% 
+          setcolorder(., c("Scale", "V1"))) %>%
+  .[, Scale:= factor(Scale, levels = c("Colorado counties", "USA states", 
+                                       "Australian irrigation systems"))] %>%
+  ggplot(., aes(V1, group = Scale)) +
+  geom_histogram(color = "black", fill = "white") +
+  geom_vline(data = ci.dt, aes(xintercept = value), color = "blue") +
+  labs(x = "$r^2$", 
+       y = "Count") +
+  facet_wrap(~Scale) +
+  scale_x_continuous(breaks = pretty_breaks(n = 3)) +
+  theme_AP() +
+  theme(strip.background = element_rect(fill = "white")) 
+
+plot_grid(all_scatters, all.histo, ncol = 1, labels = "auto")
+```
+
+## Regression diagnostics
+
+```{r australian_diagnostics, cache=TRUE, dependson="australian_regressions", fig.height=5, fig.width=3.5}
 
 # REGRESSION DIAGNOSTICS ---------------------------------------------------------
 
-# Residuals versus fitted
-a <- ggplot(australia.residuals, aes(.fitted, .resid)) +
-  geom_point(size = 0.5) + 
-  geom_hline(yintercept = 0, lty = 2, color = "red") +
-  geom_smooth(size = 0.5) +
-  labs(x = "Fitted value", y = "Residuals") +
-  facet_grid(~Year, scales = "free_y") +
-  theme_AP() +
-  theme(strip.text.y = element_text(size = 6.4), 
-        strip.background = element_rect(fill = "white"))
+# AUSTRALIA ---------------------------------------
+australia.residuals <- australia.regressions  %>%
+  dplyr::select(Year, residuals) %>%
+  unnest(residuals) %>%
+  data.table() 
 
-# QQ plot
-b <- ggplot(australia.residuals, aes(sample = .std.resid)) +
-  stat_qq(size = 0.5) + 
-  stat_qq_line() +
-  facet_grid(~Year, scales = "free_y") +
-  labs(x = "Theoretical quantiles", 
-       y = "Standardized Residuals") +
-  theme_AP() +
-  theme(strip.text.y = element_text(size = 6.4), 
-        strip.background = element_rect(fill = "white"))
+# USA  -------------------------------------------
+usa.residuals <- usa.regressions  %>%
+  dplyr::select(Scale, residuals) %>%
+  unnest(residuals) %>%
+  data.table() 
 
-# Cook's distance
+# functions to plot:
+
+# residuals versus fitted
+plot_res <- function(dt) {
+  gg <- ggplot(dt, aes(.fitted, .resid)) +
+    geom_point(size = 0.5) + 
+    geom_hline(yintercept = 0, lty = 2, color = "red") +
+    geom_smooth(size = 0.5) +
+    labs(x = "Fitted value", y = "Residuals") +
+    theme_AP() +
+    theme(strip.text.y = element_text(size = 6.4), 
+          strip.background = element_rect(fill = "white"))
+  return(gg)
+}
+
+# qq plot
+plot_qq <- function(dt) {
+  gg <- ggplot(dt, aes(sample = .std.resid)) +
+    stat_qq(size = 0.5) + 
+    stat_qq_line() +
+    labs(x = "Theoretical quantiles", 
+         y = "Standardized Residuals") +
+    theme_AP() +
+    theme(strip.text.y = element_text(size = 6.4), 
+          strip.background = element_rect(fill = "white"))
+  return(gg)
+}
+
+# PLOT FOR AUSTRALIA ------------------
+
+a <- plot_res(australia.residuals) +
+  facet_grid(~Year, scales = "free_y") 
+  
+b <- plot_qq(australia.residuals) +
+  facet_grid(~Year, scales = "free_y")
+
 ID <- australia.residuals[, .N, Year]
-australia.residuals <- australia.residuals[, ID:= unlist(sapply(ID[, N], function(x) 1:x))]
-c <- ggplot(australia.residuals, aes(ID, .cooksd)) +
+numb <- unlist(sapply(ID[, N], function(x) 1:x))
+c <- cbind(australia.residuals, numb) %>%
+  ggplot(., aes(numb, .cooksd)) +
   geom_col() +
   scale_y_continuous(limits = c(0, 1)) +
   facet_grid(~Year, scales = "free_x") +
@@ -1482,7 +1790,85 @@ c <- ggplot(australia.residuals, aes(ID, .cooksd)) +
         strip.background = element_rect(fill = "white"))
 
 plot_grid(a, b, c, labels = "auto", ncol = 1, align = "hv", hjust = -2.5)
+
+# PLOT FOR USA ------------------------
+
+a <- plot_res(usa.residuals) +
+  facet_grid(~Scale, scales = "free_y") 
+
+b <- plot_qq(usa.residuals) +
+  facet_grid(~Scale, scales = "free_y")
+
+ID <- usa.residuals[, .N, Scale]
+numb <- unlist(sapply(ID[, N], function(x) 1:x))
+c <- cbind(usa.residuals, numb) %>%
+  ggplot(., aes(numb, .cooksd)) +
+  geom_col() +
+  scale_y_continuous(limits = c(0, 1)) +
+  facet_grid(~Scale, scales = "free_x") +
+  theme_AP() +
+  labs(x = "Observation number", y = "Cook's distance") +
+  theme(strip.text.y = element_text(size = 6.4), 
+        strip.background = element_rect(fill = "white"))
+
+plot_grid(a, b, c, labels = "auto", ncol = 1, align = "hv", hjust = -2.5)
 ```
+
+```{r boot_beta, cache=TRUE, dependson=c("australia.dt", "australian_regressions"), fig.height=2, fig.width=2.5}
+
+# BOOTSTRAP BETA  ---------------------------------------------------------------
+
+# Australia
+foo.beta <- boot(australia.dt, function(data,indices)
+  coef(lm(Water.Withdrawal ~ Irrigated.Area,
+          data[indices, ]))[[2]], R = 5000)
+
+# USA
+foo.states <- boot(usa.dt.lm[Scale == "USA states"], function(data,indices)
+  coef(lm(Water.Withdrawal ~ Irrigated.Area,
+          data[indices, ]))[[2]], R = 5000)
+
+foo.counties <- boot(usa.dt.lm[Scale == "Colorado counties"], function(data,indices)
+  coef(lm(Water.Withdrawal ~ Irrigated.Area,
+          data[indices, ]))[[2]], R = 5000)
+
+# Confidence intervals
+ci_plot2 <- lapply(list(foo.states,
+                        foo.counties,
+                        foo.beta), function(x) boot.ci(x, type = "all"))
+
+names(ci_plot2) <- c("USA states", "Colorado counties", "Australian irrigation systems")
+
+ci.dt <- data.table(Scale = c("USA states", "Colorado counties", "Australian irrigation systems"), 
+                    low.ci = c(ci_plot2$`USA states`$bca[[4]], 
+                               ci_plot2$`Colorado counties`$bca[[4]], 
+                               ci_plot2$`Australian irrigation systems`$bca[[4]]), 
+                    high.ci = c(ci_plot2$`USA states`$bca[[5]], 
+                                ci_plot2$`Colorado counties`$bca[[5]], 
+                                ci_plot2$`Australian irrigation systems`$bca[[5]])) %>%
+  melt(., measure.vars = c("low.ci", "high.ci"))
+
+tmp <- rbind(data.table(foo.states$t)[, Scale:= "USA states"], 
+             data.table(foo.counties$t)[, Scale:= "Colorado counties"], 
+             data.table(foo.beta$t)[, Scale:= "Australian irrigation systems"])
+```
+
+```{r plot_beta, cache=TRUE, dependson="boot_beta", fig.height=2.5}
+
+# PLOT BETA ----------------------------------------------------------------------
+
+# Plot
+  ggplot(tmp, aes(V1)) +
+  geom_histogram(color = "black", fill = "white") +
+  geom_vline(data = ci.dt, aes(xintercept = value), color = "blue") +
+  geom_vline(xintercept = 1, lty = 2) +
+  labs(x = "$\\beta$", y = "Count") +
+  facet_wrap(~Scale) +
+  scale_x_continuous(breaks = pretty_breaks(n = 3)) +
+  theme_AP() +
+  theme(strip.background = element_rect(fill = "white")) 
+```
+
 
 # Irrigated area at the cell level
 
