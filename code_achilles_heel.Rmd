@@ -2052,27 +2052,6 @@ for(i in names(full.isimip.split)) {
 gg
 ```
 
-# Session information
-
-```{r session_information}
-
-# SESSION INFORMATION ------------------------------------------------------------
-
-sessionInfo()
-
-## Return the machine CPU
-cat("Machine: "); print(get_cpu()$model_name)
-
-## Return number of true cores
-cat("Num cores: "); print(detectCores(logical = FALSE))
-
-## Return number of threads
-cat("Num threads: "); print(detectCores(logical = TRUE))
-
-## Return the machine RAM
-cat("RAM: "); print (get_ram()); cat("\n")
-```
-
 ```{r annex_water_productivity, cache=TRUE, dependson="data_water", fig.height=3, fig.width=5.4, echo=FALSE}
 
 wp <- fread("water_productivity.csv", header = TRUE)[, .SD, .SDcols = c("Country", "2007")]
@@ -2100,4 +2079,27 @@ merge(water.dt, wp, by = c("Continent", "Country", "Code"), all.x = TRUE) %>%
   theme(legend.position = "top", 
         strip.background = element_rect(fill = "white"))
 ```
+
+# Session information
+
+```{r session_information}
+
+# SESSION INFORMATION ------------------------------------------------------------
+
+sessionInfo()
+
+## Return the machine CPU
+cat("Machine: "); print(get_cpu()$model_name)
+
+## Return number of true cores
+cat("Num cores: "); print(detectCores(logical = FALSE))
+
+## Return number of threads
+cat("Num threads: "); print(detectCores(logical = TRUE))
+
+## Return the machine RAM
+cat("RAM: "); print (get_ram()); cat("\n")
+```
+
+
 # References
