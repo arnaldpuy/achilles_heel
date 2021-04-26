@@ -1,5 +1,9 @@
 
-# Irrigated areas drive irrigation water withdrawals
+---
+title: Irrigated areas drive irrigation water withdrawals
+bibliography:
+  - /Users/arnald/Documents/bibtex/LATEX_water_withdrawal.bib
+---
 
 Arnald Puy, Emanuele Borgonovo, Samuele Lo Piano, Simon Levin and Andrea Saltelli
 
@@ -9,4 +13,23 @@ This is the R code of the paper, whose abstract is the following:
 
 ## Information
 
-We provide the code in .R, .rmd and .pdf along with a detailed narration of the steps needed to reproduce our work. 
+We provide the code in `.R`, `.rmd` and `.pdf` along with a detailed narration of the steps needed to reproduce our work and the software requirements. 
+
+## Datasets included
+
+Here you can find country-level estimates of irrigation water withdrawal produced as
+a function of irrigated areas (`global_water_withdrawals.csv`). 
+
+We also include all `.csv` datasets needed to replicate our work. The `.nc` files weight too much and should be downloaded from either ISIMIP (https://www.isimip.org) or from Huang et al. https://zenodo.org/record/1209296#.YIblVy2cb1J. 
+
+* `FAO_GMIA_historic.csv` [@Siebert2015].
+* `table_4.csv` [@Frenken2012].
+* `liu.csv` [@Liu2016a].
+* `meier.csv` [@Meier2018].
+* `rohwer_data.csv` [@Rohwer2007].
+* `australia_scheme.csv` [@Malano2001a].
+* `solley.dt.csv` [@Solley1998].
+* `colorado_data.csv` [@Ivahnenko2010].
+* `water_productivity.csv` https://data.worldbank.org/indicator/ER.GDP.FWTL.M3.KD.
+
+# References

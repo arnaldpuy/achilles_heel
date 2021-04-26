@@ -44,8 +44,9 @@ This document presents the workflow of the paper "Irrigated areas drive irrigati
 
 Once all datasets required for the analysis have been acquired from the appropriate sources, the results of the paper should be fully reproducible in any personal computer. Questions about the code or the computational design should be addressed to A. Puy (apuy@princeton.edu; arnald.puy@pm.me).
 
+\newpage
+
 ## Preliminary functions
-We start by creating a function to load all required libraries for the analysis in one go. We also set a checkpoint to ensure that our code is fully reproducible for anyone anytime. Finally, we design a short theme function for all the plots that will be produced in the analysis.
 
 ```{r load_packages, results="hide", message=FALSE, warning=FALSE}
 
@@ -93,21 +94,9 @@ theme_AP <- function() {
 }
 ```
 
-# Load datasets
-Here we retrieve the datasets needed to conduct the analysis at the national level. We collect irrigation water withdrawal data outputted by eight Global Hydrological Models (GHM) (PCR-GLOBWB, H08, LPJmL, WaterGap, MPI-HM, DBHM), one Land Surface Model (LSM) (VIC) and one Land Earth Surface Model (LESM) (CLM45). We also retrieve irrigation water withdrawal values reported by two FAO-based datasets, Aquastat and Aquastat without missing values [@Liu2016a].
-
-For PCR-GLOBWB, H08, LPMjL and WaterGap we use the `.nc` files prepared by @Huang2018b. For DBHM, MPI-HM, CLM45 and VIC we use the `.nc` files available in the Inter-Sectoral Impact Model Intercomparison Project (ISIMIP) webpage, https://www.isimip.org. For the FAO-based datasets, we use the irrigation water withdrawal values reported by Aquastat [@Frenken2012] and the dataset by @Liu2016a, which is similar to Aquastat's but without missing values.
+# Load the datasets
 
 ## Define loading functions
-Here we define some functions that will be applied later on to read in and clean the datasets just mentioned. 
-
-`country_code` unifies the country names across datasets and provides each country with its United Nations code to avoid any confusion during the processing of the data. 
-
-`coords2country` transforms the coordinates of the .nc files to the appropriate country names. 
-
-`get_nc_data` is tailored to specifically extract irrigation water withdrawal data at the country level from the datasets compiled by @Huang2018b. Note that there are calls to `country_code` and `coors2country` inside the function to transform each longitude and latitude value to a country name.
-
-`open_nc_files` is tailored to specifically extract irrigation water withdrawal data at the country level from the datasets retrieved from ISIMIP. Again, it includes calls to `country_code` and `coors2country`.
 
 ```{r functions_data, cache=TRUE}
 
@@ -1348,8 +1337,6 @@ sample.matrix <- lapply(sample.matrix, transform_sample_matrix)
 sample.matrix.dt <- rbindlist(sample.matrix, idcol = "Continent")
 ```
 
-We then print out the sample matrix to allow the reader understand its organization.
-
 ```{r print_matrix)}
 
 # PRINT SAMPLE MATRIX ------------------------------------------------------------
@@ -1916,7 +1903,6 @@ tmp <- rbind(data.table(foo.states$t)[, Scale:= "USA"],
   theme_AP() +
   theme(strip.background = element_rect(fill = "white")) 
 ```
-
 
 # Irrigated area at the cell level
 
